@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentevals-example-custom-sink"
+version = "0.1.0"
+description = "Example setuptools plugin that registers an agentevals result sink"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "agentevals-cli>=0.7.0",
+]
+
+[project.entry-points."agentevals.sinks"]
+demo_ndjson = "agentevals_example_custom_sink.sink:create_demo_sink"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentevals_example_custom_sink"]

@@ -119,6 +119,12 @@ The zero-code and SDK examples implement the same toy agent (dice rolling + prim
 |---------|-------------|
 | [kubernetes/](./kubernetes/) | Deploy agentevals with kagent on Kubernetes using native OTLP gRPC ingestion (or optionally an OTel Collector). Includes a walkthrough for comparing two kagent agents (different models) and evaluating them with tool trajectory and response match scores. |
 
+## Custom result sinks
+
+Plugins can deliver run results (partial metrics, final summary, errors) to arbitrary backends alongside the database. Install a package that declares `[project.entry-points."agentevals.sinks"]`, restart agentevals, then reference the plugin’s `kind` in `spec.sinks` on `POST /api/runs`.
+
+See [custom_sink/README.md](./custom_sink/README.md) for a minimal setuptools plugin and configuration examples.
+
 ## Advanced: GenAI Semantic Convention Patterns
 
 > [!TIP]

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import httpx
@@ -21,6 +22,10 @@ from agentevals.run.sinks import (
     SinkFanout,
     StdoutSink,
     build_sinks,
+    clear_sink_plugin_registry,
+    log_registered_sinks,
+    register_sink_factory,
+    registered_sink_kinds,
 )
 from agentevals.storage.models import Result, ResultStatus
 
@@ -41,6 +46,14 @@ def _mock_async_client(transport: httpx.MockTransport):
 
     with patch.object(sinks_module.httpx, "AsyncClient", _factory):
         yield
+
+
+@pytest.fixture
+def isolated_sink_plugins():
+    """``register_sink_factory`` is process-global; reset around plugin tests."""
+    clear_sink_plugin_registry()
+    yield
+    clear_sink_plugin_registry()
 
 
 def _result(run_id: UUID) -> Result:
@@ -182,6 +195,17 @@ class TestHttpWebhookSink:
         assert "authorization" not in captured[0]
 
 
+class TestRegisteredSinkKinds:
+    def test_includes_builtins(self):
+        kinds = set(registered_sink_kinds())
+        assert {"stdout", "file", "http_webhook"}.issubset(kinds)
+
+    def test_log_registered_sinks_info(self, caplog):
+        with caplog.at_level(logging.INFO, logger="agentevals.run.sinks"):
+            log_registered_sinks()
+        assert any("Result sinks available" in r.getMessage() for r in caplog.records)
+
+
 class TestBuildSinks:
     def test_stdout(self):
         fanout = build_sinks([{"kind": "stdout"}])
@@ -212,6 +236,161 @@ class TestBuildSinks:
         beats crashing the entire run."""
         fanout = build_sinks([{"kind": "future_kind"}, {"kind": "stdout"}])
         assert isinstance(fanout, SinkFanout)
+
+
+class TestPluginSinkRegistry:
+    async def test_register_sink_factory_kind(self, isolated_sink_plugins, tmp_path):
+        path = tmp_path / "plugin.jsonl"
+
+        def _factory(spec: dict) -> FileSink:
+            return FileSink(spec["path"])
+
+        register_sink_factory("plugin_file", _factory)
+        fanout = build_sinks([{"kind": "plugin_file", "path": str(path)}])
+        run_id = uuid4()
+        await fanout.emit_final(run_id, {"ok": True}, attempt=1)
+        assert json.loads(path.read_text().strip())["summary"] == {"ok": True}
+
+    async def test_programmatic_registration_overrides_builtin(self, isolated_sink_plugins):
+        finals: list[dict] = []
+
+        class CaptureSink:
+            async def emit_partial(self, run_id, results, attempt):
+                pass
+
+            async def emit_final(self, run_id, summary, attempt):
+                finals.append(summary)
+
+            async def emit_error(self, run_id, error, attempt):
+                pass
+
+        register_sink_factory("stdout", lambda _spec: CaptureSink())
+        fanout = build_sinks([{"kind": "stdout"}])
+        await fanout.emit_final(uuid4(), {"captured": True}, attempt=1)
+        assert finals == [{"captured": True}]
+
+    async def test_factory_exception_skips_sink(self, isolated_sink_plugins, caplog):
+        def broken_factory(_spec):
+            raise RuntimeError("no")
+
+        register_sink_factory("broken", broken_factory)
+        with caplog.at_level(logging.ERROR):
+            fanout = build_sinks([{"kind": "broken"}, {"kind": "stdout"}])
+        assert isinstance(fanout, SinkFanout)
+        assert any("sink factory failed for kind=broken" in r.getMessage() for r in caplog.records)
+        await fanout.emit_final(uuid4(), {}, attempt=1)
+
+
+class TestSinkEntryPoints:
+    """Entry-point discovery without relying on packages installed in the test venv."""
+
+    async def test_entry_point_factory_resolves_kind(self, isolated_sink_plugins, tmp_path):
+        path = tmp_path / "ep.jsonl"
+
+        def file_factory(spec: dict) -> FileSink:
+            return FileSink(spec["path"])
+
+        ep = MagicMock()
+        ep.name = "from_ep"
+        ep.load.return_value = file_factory
+
+        with patch("agentevals.run.sinks.entry_points", return_value=[ep]):
+            fanout = build_sinks([{"kind": "from_ep", "path": str(path)}])
+        ep.load.assert_called_once_with()
+        run_id = uuid4()
+        await fanout.emit_final(run_id, {"via": "ep"}, attempt=1)
+        assert json.loads(path.read_text().strip())["summary"] == {"via": "ep"}
+
+    async def test_builtin_kind_does_not_load_colliding_entry_point(self, isolated_sink_plugins, capsys):
+        ep = MagicMock()
+        ep.name = "stdout"
+        ep.load.side_effect = AssertionError("built-in kinds must not load shadow entry points")
+
+        with patch("agentevals.run.sinks.entry_points", return_value=[ep]):
+            fanout = build_sinks([{"kind": "stdout"}])
+        ep.load.assert_not_called()
+        await fanout.emit_final(uuid4(), {"k": "v"}, attempt=1)
+        assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["phase"] == "final"
+
+    def test_entry_point_load_failure_skipped(self, isolated_sink_plugins, caplog):
+        ep = MagicMock()
+        ep.name = "broken_pkg_sink"
+        ep.load.side_effect = ImportError("dist not installed")
+
+        with patch("agentevals.run.sinks.entry_points", return_value=[ep]), caplog.at_level(logging.ERROR):
+            build_sinks([{"kind": "broken_pkg_sink"}])
+        assert any("failed to load sink entry point" in r.getMessage() for r in caplog.records)
+
+    def test_non_callable_entry_point_skipped(self, isolated_sink_plugins, caplog):
+        ep = MagicMock()
+        ep.name = "bad_export"
+        ep.load.return_value = "not_callable"
+
+        with patch("agentevals.run.sinks.entry_points", return_value=[ep]), caplog.at_level(logging.WARNING):
+            build_sinks([{"kind": "bad_export"}])
+        assert any("not callable" in r.getMessage() for r in caplog.records)
+
+    def test_kind_only_from_missing_plugin_is_unknown(self, isolated_sink_plugins, caplog):
+        """Same behavior as an unpublished PyPI sink: no entry point, no registration."""
+        with patch("agentevals.run.sinks.entry_points", return_value=[]), caplog.at_level(logging.WARNING):
+            fanout = build_sinks([{"kind": "demo_ndjson", "path": "/tmp/would_not_be_used.jsonl"}])
+        assert any("unknown sink kind 'demo_ndjson'" in r.getMessage() for r in caplog.records)
+        assert isinstance(fanout, SinkFanout)
+
+    async def test_missing_plugin_sink_does_not_break_fanout(self, isolated_sink_plugins, tmp_path, caplog):
+        """Unknown plugin kind skipped; remaining sinks still run."""
+        path = tmp_path / "only_builtin.jsonl"
+        with patch("agentevals.run.sinks.entry_points", return_value=[]), caplog.at_level(logging.WARNING):
+            fanout = build_sinks(
+                [
+                    {"kind": "demo_ndjson", "path": str(tmp_path / "absent.jsonl")},
+                    {"kind": "file", "path": str(path)},
+                ]
+            )
+        assert any("unknown sink kind 'demo_ndjson'" in r.getMessage() for r in caplog.records)
+        run_id = uuid4()
+        await fanout.emit_final(run_id, {"ok": True}, attempt=1)
+        assert json.loads(path.read_text().strip())["summary"] == {"ok": True}
+
+
+def _demo_example_sink_installed() -> bool:
+    try:
+        import agentevals_example_custom_sink.sink  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(
+    not _demo_example_sink_installed(), reason="install editable: uv pip install -e examples/custom_sink"
+)
+class TestDemoNdjsonExampleSink:
+    async def test_path_dot_writes_default_ndjson(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        from agentevals_example_custom_sink.sink import create_demo_sink
+
+        sink = create_demo_sink({"path": "."})
+        await sink.emit_final(uuid4(), {"x": 1}, attempt=1)
+        out = tmp_path / "agentevals-demo-sink.ndjson"
+        assert json.loads(out.read_text().strip())["summary"] == {"x": 1}
+
+    async def test_existing_directory_appends_default_filename(self, tmp_path):
+        d = tmp_path / "outdir"
+        d.mkdir()
+        from agentevals_example_custom_sink.sink import create_demo_sink
+
+        sink = create_demo_sink({"path": str(d)})
+        await sink.emit_final(uuid4(), {}, attempt=1)
+        assert (d / "agentevals-demo-sink.ndjson").exists()
+
+    async def test_directory_with_custom_filename(self, tmp_path):
+        d = tmp_path / "logs"
+        d.mkdir()
+        from agentevals_example_custom_sink.sink import create_demo_sink
+
+        sink = create_demo_sink({"path": str(d), "filename": "runs.jsonl"})
+        await sink.emit_final(uuid4(), {"n": 2}, attempt=1)
+        assert json.loads((d / "runs.jsonl").read_text().strip())["summary"] == {"n": 2}
 
 
 class TestSinkFanoutErrorIsolation:
