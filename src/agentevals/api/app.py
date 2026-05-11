@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from agentevals import __version__
 
 from ..run.service import RunService
+from ..run.sinks import log_registered_sinks
 from ..run.worker import AsyncRunWorker
 from ..storage import StorageSettings, build_repos
 from ..storage.postgres.migrator import Migrator
@@ -83,6 +84,7 @@ def _build_lifespan():
             worker = AsyncRunWorker(runs=repos.runs, results=repos.results, settings=storage_settings)
             await worker.start()
             app.state.run_worker = worker
+            log_registered_sinks()
 
         yield
 

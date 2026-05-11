@@ -3,6 +3,14 @@
 The :class:`agentevals.storage.repos.ResultRepository` is always written;
 sinks are an additional delivery channel. Sink failures are logged with
 ``run_id`` / ``result_id`` but do not fail the run.
+
+**Plugins:** third-party packages declare setuptools entry points in group
+``agentevals.sinks`` (entry **name** = ``kind`` string; **value** = ``module:factory``
+callable ``factory(spec: dict) -> ResultSink``). Built-in kinds
+(``stdout``, ``file``, ``http_webhook``) are not overridden by entry points;
+hosts may replace any kind via :func:`register_sink_factory` (highest precedence).
+
+Tests may call :func:`clear_sink_plugin_registry` to drop programmatic registrations.
 """
 
 from __future__ import annotations
@@ -12,8 +20,10 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Callable
+from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 import httpx
@@ -22,11 +32,18 @@ from ..storage.models import Result
 
 logger = logging.getLogger(__name__)
 
+SINK_ENTRY_POINT_GROUP = "agentevals.sinks"
+
 
 class ResultSink(Protocol):
     async def emit_partial(self, run_id: UUID, results: list[Result], attempt: int) -> None: ...
     async def emit_final(self, run_id: UUID, summary: dict, attempt: int) -> None: ...
     async def emit_error(self, run_id: UUID, error: str, attempt: int) -> None: ...
+
+
+SinkFactory = Callable[[dict[str, Any]], ResultSink]
+
+_PLUGIN_FACTORIES: dict[str, SinkFactory] = {}
 
 
 def _result_payload(r: Result) -> dict:
@@ -187,33 +204,18 @@ class SinkFanout:
             logger.exception("sink delivery failed in phase=%s", phase)
 
 
-def build_sinks(specs: list[dict]) -> SinkFanout:
-    """Construct a fan-out from the run spec's ``sinks`` array.
+def register_sink_factory(kind: str, factory: SinkFactory) -> None:
+    """Register or replace the factory for ``kind`` (overrides built-ins and entry points).
 
-    Each spec is a dict with ``kind`` plus kind-specific args. Unknown kinds
-    are skipped with a warning so a future kind added by a host doesn't
-    break older agentevals replicas mid-rollout.
+    Call during process startup before run workers consume specs. The factory receives
+    the full sink spec dict (including ``kind``) and returns a :class:`ResultSink`.
     """
-    sinks: list[ResultSink] = []
-    for spec in specs:
-        kind = spec.get("kind")
-        if kind == "stdout":
-            sinks.append(StdoutSink())
-        elif kind == "file":
-            sinks.append(FileSink(spec["path"]))
-        elif kind == "http_webhook":
-            sinks.append(
-                HttpWebhookSink(
-                    url=spec["url"],
-                    headers=spec.get("headers"),
-                    headers_from_env=spec.get("headers_from_env") or _extract_env_headers(spec.get("auth")),
-                    timeout_s=float(spec.get("timeout_s", 10.0)),
-                    max_attempts=int(spec.get("max_attempts", 5)),
-                )
-            )
-        else:
-            logger.warning("unknown sink kind '%s'; skipping", kind)
-    return SinkFanout(sinks)
+    _PLUGIN_FACTORIES[kind] = factory
+
+
+def clear_sink_plugin_registry() -> None:
+    """Drop all registrations from :func:`register_sink_factory` (for tests)."""
+    _PLUGIN_FACTORIES.clear()
 
 
 def _extract_env_headers(auth: Any) -> dict[str, str]:
@@ -228,3 +230,85 @@ def _extract_env_headers(auth: Any) -> dict[str, str]:
         if isinstance(value, dict) and "from_env" in value:
             result[header_name] = value["from_env"]
     return result
+
+
+def _http_webhook_from_spec(spec: dict[str, Any]) -> HttpWebhookSink:
+    return HttpWebhookSink(
+        url=spec["url"],
+        headers=spec.get("headers"),
+        headers_from_env=spec.get("headers_from_env") or _extract_env_headers(spec.get("auth")),
+        timeout_s=float(spec.get("timeout_s", 10.0)),
+        max_attempts=int(spec.get("max_attempts", 5)),
+    )
+
+
+def _builtin_factories() -> dict[str, SinkFactory]:
+    return {
+        "stdout": lambda _spec: StdoutSink(),
+        "file": lambda spec: FileSink(spec["path"]),
+        "http_webhook": _http_webhook_from_spec,
+    }
+
+
+def _merge_sink_factories() -> dict[str, SinkFactory]:
+    """Built-ins, then entry points (no built-in shadowing), then programmatic overrides."""
+    merged: dict[str, SinkFactory] = dict(_builtin_factories())
+    eps = entry_points(group=SINK_ENTRY_POINT_GROUP)
+    for ep in eps:
+        if ep.name in merged:
+            logger.debug("skipping sink entry point %r; built-in kind takes precedence", ep.name)
+            continue
+        try:
+            loaded = ep.load()
+            if not callable(loaded):
+                logger.warning("sink entry point %r is not callable; skipping", ep.name)
+                continue
+            merged[ep.name] = cast(SinkFactory, loaded)
+        except Exception:
+            logger.exception("failed to load sink entry point %r", ep.name)
+    merged.update(_PLUGIN_FACTORIES)
+    return merged
+
+
+def registered_sink_kinds() -> tuple[str, ...]:
+    """Sorted sink ``kind`` strings that would resolve if :func:`build_sinks` ran now.
+
+    Includes built-ins, successfully loaded setuptools entry points for group
+    :data:`SINK_ENTRY_POINT_GROUP`, and registrations from
+    :func:`register_sink_factory`. The tuple reflects current process state and
+    can change if the programmatic registry is mutated after startup.
+    """
+    return tuple(sorted(_merge_sink_factories().keys()))
+
+
+def log_registered_sinks() -> None:
+    """Emit one INFO line listing available sink kinds (for operator diagnostics)."""
+    kinds = registered_sink_kinds()
+    logger.info("Result sinks available (%d kinds): %s", len(kinds), ", ".join(kinds))
+
+
+def build_sinks(specs: list[dict]) -> SinkFanout:
+    """Construct a fan-out from the run spec's ``sinks`` array.
+
+    Each spec is a dict with ``kind`` plus kind-specific args. Unknown kinds
+    are skipped with a warning so a future kind added by a host doesn't
+    break older agentevals replicas mid-rollout.
+
+    Factory lookup starts from built-ins, adds setuptools entry points (group
+    ``agentevals.sinks``) for ``kind`` names not already built-in, then applies
+    :func:`register_sink_factory` registrations, which override any prior factory
+    for the same ``kind``. See :func:`_merge_sink_factories`.
+    """
+    factories = _merge_sink_factories()
+    sinks: list[ResultSink] = []
+    for spec in specs:
+        kind = spec.get("kind")
+        factory = factories.get(kind) if kind is not None else None
+        if factory is None:
+            logger.warning("unknown sink kind '%s'; skipping", kind)
+            continue
+        try:
+            sinks.append(factory(spec))
+        except Exception:
+            logger.exception("sink factory failed for kind=%s", kind)
+    return SinkFanout(sinks)
