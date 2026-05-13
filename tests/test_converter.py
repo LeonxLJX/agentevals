@@ -186,6 +186,92 @@ class TestConverter:
         assert len(results) == 2
         assert all(r.trace_id == "t1" for r in results)
 
+    def test_convert_adk_generate_content_llm_spans(self):
+        invoke = Span(
+            trace_id="t-gc",
+            span_id="invoke1",
+            parent_span_id=None,
+            operation_name="invoke_agent query_agent",
+            start_time=1000,
+            duration=10000,
+            tags={"gen_ai.operation.name": "invoke_agent"},
+        )
+        llm_1 = Span(
+            trace_id="t-gc",
+            span_id="llm1",
+            parent_span_id="invoke1",
+            operation_name="generate_content mockllm-deterministic",
+            start_time=2000,
+            duration=1000,
+            tags={
+                "gen_ai.operation.name": "generate_content",
+                "gcp.vertex.agent.llm_request": json.dumps(
+                    {"Contents": [{"role": "user", "parts": [{"text": "inspect pods"}]}]}
+                ),
+                "gcp.vertex.agent.llm_response": json.dumps(
+                    {"Content": {"role": "model", "parts": [{"text": "Calling tools."}]}}
+                ),
+            },
+        )
+        tool_1 = Span(
+            trace_id="t-gc",
+            span_id="tool1",
+            parent_span_id="invoke1",
+            operation_name="execute_tool list_pods",
+            start_time=3000,
+            duration=500,
+            tags={
+                "gen_ai.tool.name": "list_pods",
+                "gen_ai.tool.call.id": "call_1",
+                "gcp.vertex.agent.tool_call_args": json.dumps({"namespace": "default"}),
+                "gcp.vertex.agent.tool_response": json.dumps({"pods": []}),
+            },
+        )
+        llm_2 = Span(
+            trace_id="t-gc",
+            span_id="llm2",
+            parent_span_id="invoke1",
+            operation_name="generate_content mockllm-deterministic",
+            start_time=4000,
+            duration=1000,
+            tags={
+                "gen_ai.operation.name": "generate_content",
+                "gcp.vertex.agent.llm_request": json.dumps({"contents": []}),
+                "gcp.vertex.agent.llm_response": json.dumps(
+                    {"Content": {"role": "model", "parts": [{"text": "No pods found."}]}}
+                ),
+            },
+        )
+        tool_2 = Span(
+            trace_id="t-gc",
+            span_id="tool2",
+            parent_span_id="invoke1",
+            operation_name="execute_tool get_events",
+            start_time=5000,
+            duration=500,
+            tags={
+                "gen_ai.tool.name": "get_events",
+                "gen_ai.tool.call.id": "call_2",
+                "gcp.vertex.agent.tool_call_args": json.dumps({"namespace": "default"}),
+                "gcp.vertex.agent.tool_response": json.dumps({"events": []}),
+            },
+        )
+        invoke.children.extend([llm_1, tool_1, llm_2, tool_2])
+        trace = Trace(
+            trace_id="t-gc",
+            root_spans=[invoke],
+            all_spans=[invoke, llm_1, tool_1, llm_2, tool_2],
+        )
+
+        result = convert_trace(trace)
+
+        assert result.warnings == []
+        assert len(result.invocations) == 1
+        inv = result.invocations[0]
+        assert inv.user_content.parts[0].text == "inspect pods"
+        assert inv.final_response.parts[0].text == "No pods found."
+        assert [t.name for t in inv.intermediate_data.tool_uses] == ["list_pods", "get_events"]
+
     def test_no_invoke_agent_warns(self):
         trace = Trace(
             trace_id="empty",
