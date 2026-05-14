@@ -417,9 +417,8 @@ def find_adk_llm_spans_in(root: Span) -> list[Span]:
             generate_content_spans.append(span)
 
     _walk_descendants(root, collect)
-    sort_key = lambda s: (s.start_time, s.span_id, s.operation_name)
-    call_llm_spans.sort(key=sort_key)
-    generate_content_spans.sort(key=sort_key)
+    call_llm_spans.sort(key=lambda s: s.start_time)
+    generate_content_spans.sort(key=lambda s: s.start_time)
     return call_llm_spans or generate_content_spans
 
 

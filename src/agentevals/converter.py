@@ -131,7 +131,8 @@ def _convert_invoke_span(invoke_span: Span) -> Invocation:
     llm_spans = find_adk_llm_spans_in(invoke_span)
     if not llm_spans:
         raise ValueError(
-            f"invoke_agent span {invoke_span.span_id} has no converter-compatible ADK LLM descendants"
+            f"invoke_agent span {invoke_span.span_id} has no converter-compatible ADK LLM descendants; "
+            "expected call_llm or ADK generate_content spans"
         )
 
     tool_spans = _find_children_by_op(invoke_span, "execute_tool")
@@ -181,7 +182,7 @@ def _extract_user_content(first_call_llm: Span) -> genai_types.Content:
     llm_request_raw = first_call_llm.get_tag(ADK_LLM_REQUEST, "{}")
     llm_request = parse_json(llm_request_raw)
     for content_dict in llm_request.get("contents", llm_request.get("Contents", [])):
-        if content_dict.get("role", content_dict.get("Role")) == "user":
+        if content_dict.get("role") == "user":
             return _content_from_dict(content_dict)
     raise ValueError(f"call_llm span {first_call_llm.span_id}: no user content found in llm_request")
 
@@ -267,7 +268,7 @@ def _extract_function_calls_from_llm_response(
     llm_response = parse_json(llm_response_raw)
 
     content_dict = llm_response.get("content", llm_response.get("Content", {}))
-    parts = content_dict.get("parts", content_dict.get("Parts", []))
+    parts = content_dict.get("parts", [])
 
     calls = []
     for part in parts:
@@ -285,13 +286,13 @@ def _extract_function_calls_from_llm_response(
 
 def _content_from_dict(content_dict: dict[str, Any]) -> genai_types.Content:
     """Build a genai Content from a raw dict. Handles text, function_call, and function_response parts."""
-    role = content_dict.get("role", content_dict.get("Role", "user"))
-    parts_dicts = content_dict.get("parts", content_dict.get("Parts", []))
+    role = content_dict.get("role", "user")
+    parts_dicts = content_dict.get("parts", [])
 
     parts: list[genai_types.Part] = []
     for p in parts_dicts:
-        if "text" in p or "Text" in p:
-            parts.append(genai_types.Part(text=p.get("text", p.get("Text"))))
+        if "text" in p:
+            parts.append(genai_types.Part(text=p.get("text")))
         elif "function_call" in p or "functionCall" in p:
             fc = p.get("function_call", p.get("functionCall"))
             parts.append(

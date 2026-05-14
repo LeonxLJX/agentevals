@@ -238,7 +238,20 @@ class TestConverter:
                 "gen_ai.operation.name": "generate_content",
                 "gcp.vertex.agent.llm_request": json.dumps({"contents": []}),
                 "gcp.vertex.agent.llm_response": json.dumps(
-                    {"Content": {"role": "model", "parts": [{"text": "No pods found."}]}}
+                    {
+                        "Content": {
+                            "role": "model",
+                            "parts": [
+                                {
+                                    "functionCall": {
+                                        "name": "summarize_pods",
+                                        "args": {"namespace": "default"},
+                                        "id": "call_final",
+                                    }
+                                }
+                            ],
+                        }
+                    }
                 ),
             },
         )
@@ -269,7 +282,10 @@ class TestConverter:
         assert len(result.invocations) == 1
         inv = result.invocations[0]
         assert inv.user_content.parts[0].text == "inspect pods"
-        assert inv.final_response.parts[0].text == "No pods found."
+        final_call = inv.final_response.parts[0].function_call
+        assert final_call.name == "summarize_pods"
+        assert final_call.args == {"namespace": "default"}
+        assert final_call.id == "call_final"
         assert [t.name for t in inv.intermediate_data.tool_uses] == ["list_pods", "get_events"]
 
     def test_no_invoke_agent_warns(self):
@@ -292,6 +308,35 @@ class TestConverter:
         assert len(result.invocations) == 0
         assert len(result.warnings) == 1
         assert "no invoke_agent" in result.warnings[0]
+
+    def test_no_llm_descendants_warns_with_compatible_shapes(self):
+        invoke = Span(
+            trace_id="no-llm",
+            span_id="invoke-no-llm",
+            parent_span_id=None,
+            operation_name="invoke_agent test_agent",
+            start_time=1000,
+            duration=1000,
+            tags={
+                "otel.scope.name": "gcp.vertex.agent",
+                "gen_ai.operation.name": "invoke_agent",
+            },
+        )
+        trace = Trace(
+            trace_id="no-llm",
+            root_spans=[invoke],
+            all_spans=[invoke],
+        )
+
+        result = convert_trace(trace)
+
+        assert result.invocations == []
+        assert len(result.warnings) == 1
+        warning = result.warnings[0]
+        assert "invoke-no-llm" in warning
+        assert "no converter-compatible ADK LLM descendants" in warning
+        assert "call_llm" in warning
+        assert "ADK generate_content" in warning
 
     def test_no_tool_spans_fallback_to_llm_response(self):
         """When no execute_tool spans exist, function_calls should be
