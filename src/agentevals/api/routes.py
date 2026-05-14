@@ -114,6 +114,7 @@ router = APIRouter()
 
 _MAX_JSON_BODY_BYTES = 50 * 1024 * 1024  # 50 MB (multipart endpoints allow 10 MB per file)
 
+
 @router.get("/health", response_model=StandardResponse[HealthData])
 async def health_check():
     return StandardResponse(data=HealthData(status="ok", version=__version__))

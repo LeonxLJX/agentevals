@@ -25,8 +25,7 @@ _TYPE_TO_MODEL = {
 
 
 def _parse_evaluator_entry(entry: dict[str, Any]) -> EvaluatorDef:
-    """Parse a single evaluator entry from the YAML config.
-    """
+    """Parse a single evaluator entry from the YAML config."""
     if not isinstance(entry, dict):
         raise ValueError(
             f"Each evaluator entry must be a mapping with 'name' and 'type' fields, got {type(entry).__name__}: {entry!r}"

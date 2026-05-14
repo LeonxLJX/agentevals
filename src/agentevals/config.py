@@ -157,11 +157,11 @@ class EvalParams(BaseModel):
     def _validate_evaluators(cls, v: list[EvaluatorDef]) -> list[EvaluatorDef]:
         if not v:
             raise ValueError("At least one evaluator is required.")
-        duplicate_names = sorted(name for name, count in Counter(evaluator.name for evaluator in v).items() if count > 1)
+        duplicate_names = sorted(
+            name for name, count in Counter(evaluator.name for evaluator in v).items() if count > 1
+        )
         if duplicate_names:
-            raise ValueError(
-                "Evaluator names must be globally unique. Duplicate names: " + ", ".join(duplicate_names)
-            )
+            raise ValueError("Evaluator names must be globally unique. Duplicate names: " + ", ".join(duplicate_names))
         return v
 
     max_concurrent_traces: int = Field(

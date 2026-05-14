@@ -183,14 +183,16 @@ def run(
             )
             config = merge_configs(file_config, cli_config)
         elif judge_model is not None or threshold is not None or trajectory_match_type is not None:
-            config = config.model_copy(update={
-                "evaluators": _apply_builtin_overrides(
-                    config.evaluators,
-                    judge_model=judge_model,
-                    threshold=threshold,
-                    trajectory_match_type=trajectory_match_type,
-                )
-            })
+            config = config.model_copy(
+                update={
+                    "evaluators": _apply_builtin_overrides(
+                        config.evaluators,
+                        judge_model=judge_model,
+                        threshold=threshold,
+                        trajectory_match_type=trajectory_match_type,
+                    )
+                }
+            )
         if trace_files:
             config.trace_files = list(trace_files)
         if eval_set is not None:

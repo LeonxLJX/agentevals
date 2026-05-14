@@ -299,13 +299,15 @@ def create_server(server_url: str | None = None, **fastmcp_kwargs: Any) -> FastM
                 )
                 config = merge_configs(file_config, cli_config)
             elif judge_model is not None or threshold is not None:
-                config = config.model_copy(update={
-                    "evaluators": _apply_builtin_overrides(
-                        config.evaluators,
-                        judge_model=judge_model,
-                        threshold=threshold,
-                    )
-                })
+                config = config.model_copy(
+                    update={
+                        "evaluators": _apply_builtin_overrides(
+                            config.evaluators,
+                            judge_model=judge_model,
+                            threshold=threshold,
+                        )
+                    }
+                )
             if trace_files:
                 config.trace_files = trace_files
             if trace_format is not None:
