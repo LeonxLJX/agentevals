@@ -212,9 +212,10 @@ database:
     # run "agentevals migrate up" manually in that case.
     autoMigrate: true
     # -- Seconds the startup will spend retrying the initial Postgres
-    # connection before the pod aborts. Default 600s spans bring-up of a
-    # freshly provisioned database. Raise startupProbe.failureThreshold
-    # to match if you increase this.
+    # connection before the pod aborts. Default 600s matches the chart's
+    # hard-coded startupProbe budget (failureThreshold 60 x periodSeconds
+    # 10). Going above 600s requires overriding the probe in your own
+    # downstream template.
     connectTimeoutSeconds: 600
     # -- Bundled Postgres instance for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url /

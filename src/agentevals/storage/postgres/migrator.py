@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -265,7 +266,7 @@ default."""
 def connect_deadline_seconds() -> float:
     """Resolve the connect-retry budget. Reads ``AGENTEVALS_DB_CONNECT_TIMEOUT_S``
     and falls back to :data:`CONNECT_RETRY_DEADLINE_S` if the env var is
-    unset, empty, non-numeric, or non-positive."""
+    unset, empty, non-numeric, non-finite, or non-positive."""
     raw = os.getenv("AGENTEVALS_DB_CONNECT_TIMEOUT_S")
     if raw is None or raw == "":
         return CONNECT_RETRY_DEADLINE_S
@@ -274,6 +275,13 @@ def connect_deadline_seconds() -> float:
     except ValueError:
         logger.warning(
             "Invalid AGENTEVALS_DB_CONNECT_TIMEOUT_S=%r (not a number); using default %.0fs",
+            raw,
+            CONNECT_RETRY_DEADLINE_S,
+        )
+        return CONNECT_RETRY_DEADLINE_S
+    if not math.isfinite(val):
+        logger.warning(
+            "Invalid AGENTEVALS_DB_CONNECT_TIMEOUT_S=%r (must be finite); using default %.0fs",
             raw,
             CONNECT_RETRY_DEADLINE_S,
         )
