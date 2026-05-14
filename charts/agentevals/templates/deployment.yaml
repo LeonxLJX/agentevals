@@ -77,6 +77,8 @@ spec:
               value: {{ .Values.database.postgres.schema | quote }}
             - name: AGENTEVALS_AUTO_MIGRATE
               value: {{ .Values.database.postgres.autoMigrate | quote }}
+            - name: AGENTEVALS_DB_CONNECT_TIMEOUT_S
+              value: {{ .Values.database.postgres.connectTimeoutSeconds | quote }}
             {{- if .Values.database.postgres.urlFile }}
             - name: AGENTEVALS_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}
