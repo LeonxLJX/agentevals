@@ -5,7 +5,7 @@ Usage::
     agentevals run samples/helm.json --eval-set samples/eval_set_helm.json
     agentevals run samples/helm.json -m tool_trajectory_avg_score -m response_match_score
     agentevals run samples/helm.json --eval-set samples/eval_set_helm.json --output json
-    agentevals list-metrics
+    agentevals evaluator list --source builtin
 """
 
 from __future__ import annotations
@@ -50,6 +50,23 @@ def _relative_time(iso_str: str | None) -> str:
         return f"{years}y ago"
     except (ValueError, TypeError):
         return ""
+
+
+def _apply_builtin_overrides(evaluators, *, judge_model, threshold, trajectory_match_type):
+    updated = []
+    for evaluator in evaluators:
+        if getattr(evaluator, "type", None) == "builtin":
+            payload = evaluator.model_dump(by_alias=False)
+            if judge_model is not None:
+                payload["judge_model"] = judge_model
+            if threshold is not None:
+                payload["threshold"] = threshold
+            if trajectory_match_type is not None:
+                payload["trajectory_match_type"] = trajectory_match_type
+            updated.append(type(evaluator).model_validate(payload))
+        else:
+            updated.append(evaluator)
+    return updated
 
 
 @click.group()
@@ -129,7 +146,7 @@ def main(verbose: int) -> None:
     "config_file",
     type=click.Path(exists=True),
     default=None,
-    help="Path to an eval config YAML file defining metrics (including custom).",
+    help="Path to an eval config YAML file defining evaluators.",
 )
 def run(
     trace_files: tuple[str, ...],
@@ -142,8 +159,8 @@ def run(
     output: str,
     config_file: str | None,
 ) -> None:
-    """Evaluate trace file(s) against specified metrics."""
-    from .config import EvalRunConfig
+    """Evaluate trace file(s) against the configured evaluators."""
+    from .config import EvalRunConfig, make_builtin_evaluator_entries
     from .output import format_results
     from .runner import run_evaluation
 
@@ -153,79 +170,56 @@ def run(
         from .eval_config_loader import load_eval_config, merge_configs
 
         file_config = load_eval_config(config_file)
-
-        cli_config = EvalRunConfig(
-            trace_files=list(trace_files),
-            eval_set_file=eval_set,
-            metrics=explicit_metrics,
-            trace_format=trace_format,
-            judge_model=judge_model,
-            threshold=threshold,
-            trajectory_match_type=trajectory_match_type,
-            output_format=output,
-        )
-        config = merge_configs(file_config, cli_config)
+        config = file_config
+        if explicit_metrics:
+            cli_config = EvalRunConfig(
+                trace_files=[],
+                evaluators=make_builtin_evaluator_entries(
+                    explicit_metrics,
+                    judge_model=judge_model,
+                    threshold=threshold,
+                    trajectory_match_type=trajectory_match_type,
+                ),
+            )
+            config = merge_configs(file_config, cli_config)
+        elif judge_model is not None or threshold is not None or trajectory_match_type is not None:
+            config = config.model_copy(update={
+                "evaluators": _apply_builtin_overrides(
+                    config.evaluators,
+                    judge_model=judge_model,
+                    threshold=threshold,
+                    trajectory_match_type=trajectory_match_type,
+                )
+            })
+        if trace_files:
+            config.trace_files = list(trace_files)
+        if eval_set is not None:
+            config.eval_set_file = eval_set
+        if trace_format is not None:
+            config.trace_format = trace_format
+        if output != "table":
+            config.output_format = output
     else:
-        effective_metrics = explicit_metrics or ["tool_trajectory_avg_score"]
         config = EvalRunConfig(
             trace_files=list(trace_files),
             eval_set_file=eval_set,
-            metrics=effective_metrics,
+            evaluators=make_builtin_evaluator_entries(
+                explicit_metrics if explicit_metrics else None,
+                judge_model=judge_model,
+                threshold=threshold,
+                trajectory_match_type=trajectory_match_type,
+            ),
             trace_format=trace_format,
-            judge_model=judge_model,
-            threshold=threshold,
-            trajectory_match_type=trajectory_match_type,
             output_format=output,
         )
 
     result = asyncio.run(run_evaluation(config))
-    formatted = format_results(result, fmt=output)
+    formatted = format_results(result, fmt=config.output_format)
     click.echo(formatted)
 
     has_failure = any(mr.eval_status == "FAILED" or mr.error for tr in result.trace_results for mr in tr.metric_results)
     if has_failure or result.errors:
         sys.exit(1)
-
-
-@main.command("list-metrics")
-def list_metrics() -> None:
-    """List all available evaluation metrics.
-
-    DEPRECATED: use ``agentevals evaluator list --source builtin`` instead.
-    """
-    click.echo(
-        "Note: list-metrics is deprecated. Use 'agentevals evaluator list --source builtin' instead.\n",
-        err=True,
-    )
-    try:
-        from google.adk.evaluation.metric_evaluator_registry import (
-            DEFAULT_METRIC_EVALUATOR_REGISTRY,
-        )
-
-        metrics = DEFAULT_METRIC_EVALUATOR_REGISTRY.get_registered_metrics()
-        click.echo("Available metrics:\n")
-        for m in metrics:
-            desc = m.description or "No description"
-            click.echo(f"  {m.metric_name}")
-            click.echo(f"    {desc}")
-            if m.metric_value_info and m.metric_value_info.interval:
-                iv = m.metric_value_info.interval
-                lo = f"{'(' if iv.open_at_min else '['}{iv.min_value}"
-                hi = f"{iv.max_value}{')' if iv.open_at_max else ']'}"
-                click.echo(f"    Value range: {lo}, {hi}")
-            click.echo()
-    except ImportError as exc:
-        click.echo(
-            f"Could not load full metric registry ({exc}).\n"
-            "Some eval dependencies may be missing. Install with:\n"
-            '  pip install "google-adk[eval]"\n'
-        )
-        click.echo("Known built-in metrics:\n")
-        from google.adk.evaluation.eval_metrics import PrebuiltMetrics
-
-        for pm in PrebuiltMetrics:
-            click.echo(f"  {pm.value}")
-        click.echo()
 
 
 # ---------------------------------------------------------------------------

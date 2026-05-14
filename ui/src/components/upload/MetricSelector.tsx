@@ -5,8 +5,8 @@ import { AVAILABLE_METRICS, type MetricMetadata } from '../../lib/types';
 import { listMetrics } from '../../api/client';
 
 interface MetricSelectorProps {
-  selectedMetrics: string[];
-  onToggleMetric: (metric: string) => void;
+  selectedEvaluatorNames: string[];
+  onToggleEvaluatorName: (evaluatorName: string) => void;
   loadFromAPI?: boolean;
 }
 
@@ -128,6 +128,12 @@ const selectorStyle = css`
     border-top: 1px solid var(--border-default);
   }
 
+  .selector-note {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
   .ant-checkbox-wrapper {
     color: var(--text-primary);
   }
@@ -140,12 +146,18 @@ const selectorStyle = css`
 
 let cachedMetrics: MetricMetadata[] | null = null;
 
+function isSupportedBuiltinMetric(metric: MetricMetadata): boolean {
+  return metric.working !== false && metric.requiresRubrics !== true;
+}
+
 export const MetricSelector: React.FC<MetricSelectorProps> = ({
-  selectedMetrics,
-  onToggleMetric,
+  selectedEvaluatorNames,
+  onToggleEvaluatorName,
   loadFromAPI = false,
 }) => {
   const [metrics, setMetrics] = useState<MetricMetadata[]>(cachedMetrics ?? AVAILABLE_METRICS);
+  const supportedMetrics = metrics.filter(isSupportedBuiltinMetric);
+  const unsupportedCount = metrics.length - supportedMetrics.length;
 
   useEffect(() => {
     if (!loadFromAPI || cachedMetrics) return;
@@ -163,7 +175,7 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
     return () => { cancelled = true; };
   }, [loadFromAPI]);
 
-  const categorizedMetrics = metrics.reduce(
+  const categorizedSupportedMetrics = supportedMetrics.reduce(
     (acc, metric) => {
       if (!acc[metric.category]) {
         acc[metric.category] = [];
@@ -175,23 +187,23 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
   );
 
   const handleSelectAll = () => {
-    metrics.forEach((metric) => {
-      if (!selectedMetrics.includes(metric.name)) {
-        onToggleMetric(metric.name);
+    supportedMetrics.forEach((metric) => {
+      if (!selectedEvaluatorNames.includes(metric.name)) {
+        onToggleEvaluatorName(metric.name);
       }
     });
   };
 
   const handleClearAll = () => {
-    selectedMetrics.forEach((metric) => {
-      onToggleMetric(metric);
+    selectedEvaluatorNames.forEach((metric) => {
+      onToggleEvaluatorName(metric);
     });
   };
 
   return (
     <div css={selectorStyle}>
       <div className="metric-categories">
-        {Object.entries(categorizedMetrics).map(([category, metrics]) => (
+        {Object.entries(categorizedSupportedMetrics).map(([category, metrics]) => (
           <div key={category} className="metric-category">
             <div className="category-title">{category}</div>
             <div className="metric-list">
@@ -199,8 +211,8 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
                 <div key={metric.name} className="metric-item">
                   <div className="metric-row">
                     <Checkbox
-                      checked={selectedMetrics.includes(metric.name)}
-                      onChange={() => onToggleMetric(metric.name)}
+                      checked={selectedEvaluatorNames.includes(metric.name)}
+                      onChange={() => onToggleEvaluatorName(metric.name)}
                     >
                       <span className="metric-name">{metric.name}</span>
                     </Checkbox>
@@ -238,6 +250,12 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
           Clear All
         </Button>
       </div>
+      {unsupportedCount > 0 && (
+        <div className="selector-note">
+          Hidden {unsupportedCount} unsupported built-in evaluator{unsupportedCount === 1 ? '' : 's'} that require
+          rubric configuration or are marked incomplete.
+        </div>
+      )}
     </div>
   );
 };
