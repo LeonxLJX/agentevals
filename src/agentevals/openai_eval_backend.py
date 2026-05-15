@@ -79,7 +79,9 @@ def _build_jsonl_items(
     for i, actual_inv in enumerate(actual_invocations):
         entry: dict[str, Any] = {"actual_response": _content_to_text(actual_inv.final_response)}
         if include_expected:
-            expected_text = _content_to_text(expected_invocations[i].final_response) if i < len(expected_invocations) else ""
+            expected_text = (
+                _content_to_text(expected_invocations[i].final_response) if i < len(expected_invocations) else ""
+            )
             entry["expected_response"] = expected_text
         items.append({"item": entry})
     return items
@@ -128,7 +130,9 @@ async def evaluate_openai_eval(
             error="OpenAI text_similarity grader requires expected invocations (golden eval set).",
         )
 
-    items = _build_jsonl_items(actual_invocations, expected_invocations or [], include_expected=(grader_type != "label_model"))
+    items = _build_jsonl_items(
+        actual_invocations, expected_invocations or [], include_expected=(grader_type != "label_model")
+    )
     if not items:
         return MetricResult(
             metric_name=evaluator_def.name,
