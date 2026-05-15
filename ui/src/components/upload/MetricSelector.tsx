@@ -146,18 +146,13 @@ const selectorStyle = css`
 
 let cachedMetrics: MetricMetadata[] | null = null;
 
-function isSupportedBuiltinMetric(metric: MetricMetadata): boolean {
-  return metric.working !== false && metric.requiresRubrics !== true;
-}
-
 export const MetricSelector: React.FC<MetricSelectorProps> = ({
   selectedEvaluatorNames,
   onToggleEvaluatorName,
   loadFromAPI = false,
 }) => {
   const [metrics, setMetrics] = useState<MetricMetadata[]>(cachedMetrics ?? AVAILABLE_METRICS);
-  const supportedMetrics = metrics.filter(isSupportedBuiltinMetric);
-  const unsupportedCount = metrics.length - supportedMetrics.length;
+  const hasCaveatedMetrics = metrics.some((m) => m.requiresRubrics === true || m.working === false);
 
   useEffect(() => {
     if (!loadFromAPI || cachedMetrics) return;
@@ -175,7 +170,7 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
     return () => { cancelled = true; };
   }, [loadFromAPI]);
 
-  const categorizedSupportedMetrics = supportedMetrics.reduce(
+  const categorizedMetrics = metrics.reduce(
     (acc, metric) => {
       if (!acc[metric.category]) {
         acc[metric.category] = [];
@@ -187,7 +182,7 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
   );
 
   const handleSelectAll = () => {
-    supportedMetrics.forEach((metric) => {
+    metrics.forEach((metric) => {
       if (!selectedEvaluatorNames.includes(metric.name)) {
         onToggleEvaluatorName(metric.name);
       }
@@ -203,7 +198,7 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
   return (
     <div css={selectorStyle}>
       <div className="metric-categories">
-        {Object.entries(categorizedSupportedMetrics).map(([category, metrics]) => (
+        {Object.entries(categorizedMetrics).map(([category, metrics]) => (
           <div key={category} className="metric-category">
             <div className="category-title">{category}</div>
             <div className="metric-list">
@@ -250,10 +245,9 @@ export const MetricSelector: React.FC<MetricSelectorProps> = ({
           Clear All
         </Button>
       </div>
-      {unsupportedCount > 0 && (
+      {hasCaveatedMetrics && (
         <div className="selector-note">
-          Hidden {unsupportedCount} unsupported built-in evaluator{unsupportedCount === 1 ? '' : 's'} that require
-          rubric configuration or are marked incomplete.
+          Some evaluators require rubric configuration or are work-in-progress; see badges.
         </div>
       )}
     </div>

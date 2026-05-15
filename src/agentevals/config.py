@@ -138,6 +138,34 @@ def make_builtin_evaluator_entries(
     return evaluators
 
 
+def apply_builtin_overrides(
+    evaluators: list[EvaluatorDef],
+    *,
+    judge_model: str | None = None,
+    threshold: float | None = None,
+    trajectory_match_type: str | None = None,
+) -> list[EvaluatorDef]:
+    """Return a new evaluator list with run-level overrides applied to built-ins.
+
+    Non-builtin entries pass through unchanged. Each override is only applied
+    when the corresponding argument is not None, so callers can pass any subset.
+    """
+    updated: list[EvaluatorDef] = []
+    for evaluator in evaluators:
+        if isinstance(evaluator, BuiltinMetricDef):
+            payload = evaluator.model_dump(by_alias=False)
+            if judge_model is not None:
+                payload["judge_model"] = judge_model
+            if threshold is not None:
+                payload["threshold"] = threshold
+            if trajectory_match_type is not None:
+                payload["trajectory_match_type"] = trajectory_match_type
+            updated.append(BuiltinMetricDef.model_validate(payload))
+        else:
+            updated.append(evaluator)
+    return updated
+
+
 class EvalParams(BaseModel):
     """Evaluation parameters independent of how traces are provided.
 

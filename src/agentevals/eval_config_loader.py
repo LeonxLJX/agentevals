@@ -66,7 +66,7 @@ def load_eval_config(path: str | Path) -> EvalRunConfig:
 
     legacy_keys = {
         "metrics",
-        "custom_graders",
+        "custom_evaluators",
         "judge_model",
         "threshold",
         "trajectory_match_type",

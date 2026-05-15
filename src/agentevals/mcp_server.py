@@ -8,7 +8,7 @@ import httpx
 from mcp.server import FastMCP
 from pydantic import BaseModel, Field
 
-from agentevals.config import EvalRunConfig, make_builtin_evaluator_entries
+from agentevals.config import EvalRunConfig, apply_builtin_overrides, make_builtin_evaluator_entries
 from agentevals.runner import run_evaluation
 
 _DEFAULT_SERVER_URL = "http://localhost:8001"
@@ -87,23 +87,6 @@ class EvaluateSessionsResponse(BaseModel):
     golden_session_id: str
     eval_set_id: str
     results: list[SessionEvalResultResponse]
-
-
-def _apply_builtin_overrides(evaluators, *, judge_model=None, threshold=None, trajectory_match_type=None):
-    updated = []
-    for evaluator in evaluators:
-        if getattr(evaluator, "type", None) == "builtin":
-            payload = evaluator.model_dump(by_alias=False)
-            if judge_model is not None:
-                payload["judge_model"] = judge_model
-            if threshold is not None:
-                payload["threshold"] = threshold
-            if trajectory_match_type is not None:
-                payload["trajectory_match_type"] = trajectory_match_type
-            updated.append(type(evaluator).model_validate(payload))
-        else:
-            updated.append(evaluator)
-    return updated
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +284,7 @@ def create_server(server_url: str | None = None, **fastmcp_kwargs: Any) -> FastM
             elif judge_model is not None or threshold is not None:
                 config = config.model_copy(
                     update={
-                        "evaluators": _apply_builtin_overrides(
+                        "evaluators": apply_builtin_overrides(
                             config.evaluators,
                             judge_model=judge_model,
                             threshold=threshold,

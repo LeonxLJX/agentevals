@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import BuiltinMetricDef, EvalRunConfig, EvaluatorDef
 from ..converter import convert_traces
@@ -42,6 +42,8 @@ class CreateEvalSetRequest(BaseModel):
 
 
 class EvaluateSessionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     golden_session_id: str
     eval_set_id: str
     evaluators: list[EvaluatorDef] = Field(default_factory=lambda: [BuiltinMetricDef(name="tool_trajectory_avg_score")])

@@ -15,7 +15,7 @@ def test_load_eval_config_rejects_legacy_keys(tmp_path):
             """
             metrics:
               - tool_trajectory_avg_score
-            custom_graders:
+            custom_evaluators:
               - name: tool_call_checker
                 type: code
                 path: ./examples/custom_evaluators/tool_call_checker.py
