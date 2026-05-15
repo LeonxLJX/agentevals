@@ -394,10 +394,7 @@ def is_adk_scope(span: Span) -> bool:
 
 
 def is_adk_generate_content_llm_span(span: Span) -> bool:
-    if not (
-        span.operation_name.startswith("generate_content")
-        or span.get_tag(OTEL_GENAI_OP) == "generate_content"
-    ):
+    if not (span.operation_name.startswith("generate_content") or span.get_tag(OTEL_GENAI_OP) == "generate_content"):
         return False
     return bool(span.get_tag(ADK_LLM_REQUEST) or span.get_tag(ADK_LLM_RESPONSE))
 
