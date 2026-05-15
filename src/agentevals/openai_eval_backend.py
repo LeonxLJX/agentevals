@@ -144,7 +144,7 @@ async def evaluate_openai_eval(
         item_schema = _ACTUAL_ONLY_SCHEMA if grader_type == "label_model" else _TEXT_PAIR_SCHEMA
         eval_obj = await asyncio.to_thread(
             client.evals.create,
-            name=f"agentevals-{evaluator_def.name}",
+            name=f"agentevals-openai-{evaluator_def.name}",
             data_source_config={
                 "type": "custom",
                 "item_schema": item_schema,
@@ -158,7 +158,7 @@ async def evaluate_openai_eval(
         run = await asyncio.to_thread(
             client.evals.runs.create,
             eval_id=eval_id,
-            name=f"agentevals-run-{evaluator_def.name}",
+            name=f"agentevals-openai-run-{evaluator_def.name}",
             data_source={
                 "type": "jsonl",
                 "source": {
