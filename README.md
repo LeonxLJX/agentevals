@@ -250,7 +250,7 @@ See the [Custom Evaluators guide](docs/custom-evaluators.md) for the full protoc
 agentevals serve            # bundled UI on http://localhost:8001
 ```
 
-Upload traces and eval sets, select metrics, and view results with interactive span trees. Live-streamed traces appear in the "Local Dev" tab, grouped by session ID. For running from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
+Upload traces and eval sets, select evaluators, and view results with interactive span trees. Live-streamed traces appear in the "Local Dev" tab, grouped by session ID. For running from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 Interactive API docs are available at `/docs` (Swagger) and `/redoc` while the server is running. The OTLP receiver on port 4318 serves its own docs at `http://localhost:4318/docs`.
 
