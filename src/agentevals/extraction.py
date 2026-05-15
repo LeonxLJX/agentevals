@@ -71,17 +71,17 @@ def extract_user_text_from_attrs(attrs: dict[str, Any]) -> str | None:
         if isinstance(llm_request, dict):
             contents = llm_request.get("contents", llm_request.get("Contents", []))
             for content_dict in reversed(contents):
-                if content_dict.get("role", content_dict.get("Role")) != "user":
+                if content_dict.get("role") != "user":
                     continue
-                parts = content_dict.get("parts", content_dict.get("Parts", []))
-                text_parts = [p for p in parts if "text" in p or "Text" in p]
+                parts = content_dict.get("parts", [])
+                text_parts = [p for p in parts if "text" in p]
                 if text_parts:
-                    return " ".join(p.get("text", p.get("Text", "")) for p in text_parts)
+                    return " ".join(p["text"] for p in text_parts)
             for content_dict in contents:
-                if content_dict.get("role", content_dict.get("Role")) == "user":
-                    parts = content_dict.get("parts", content_dict.get("Parts", []))
+                if content_dict.get("role") == "user":
+                    parts = content_dict.get("parts", [])
                     if parts:
-                        return " ".join(p.get("text", p.get("Text", "")) for p in parts if "text" in p or "Text" in p)
+                        return " ".join(p.get("text", "") for p in parts if "text" in p)
 
     messages_raw = attrs.get(OTEL_GENAI_INPUT_MESSAGES)
     if messages_raw:
@@ -104,10 +104,10 @@ def extract_agent_response_from_attrs(attrs: dict[str, Any]) -> str | None:
         if isinstance(llm_response, dict):
             content_dict = llm_response.get("content", llm_response.get("Content", {}))
             if content_dict:
-                parts_dicts = content_dict.get("parts", content_dict.get("Parts", []))
-                text_parts = [p for p in parts_dicts if "text" in p or "Text" in p]
+                parts_dicts = content_dict.get("parts", [])
+                text_parts = [p for p in parts_dicts if "text" in p]
                 if text_parts:
-                    return " ".join(p.get("text", p.get("Text", "")) for p in text_parts)
+                    return " ".join(p["text"] for p in text_parts)
 
     messages_raw = attrs.get(OTEL_GENAI_OUTPUT_MESSAGES)
     if messages_raw:

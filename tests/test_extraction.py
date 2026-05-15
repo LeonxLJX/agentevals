@@ -107,6 +107,18 @@ class TestExtractUserText:
         }
         assert extract_user_text_from_attrs(attrs) == "Second"
 
+    def test_adk_llm_request_outer_contents_pascalcase(self):
+        attrs = {
+            ADK_LLM_REQUEST: json.dumps(
+                {
+                    "Contents": [
+                        {"role": "user", "parts": [{"text": "Outer PascalCase only"}]},
+                    ]
+                }
+            )
+        }
+        assert extract_user_text_from_attrs(attrs) == "Outer PascalCase only"
+
     def test_genai_content_based(self):
         attrs = {
             OTEL_GENAI_INPUT_MESSAGES: json.dumps(
@@ -169,6 +181,10 @@ class TestExtractAgentResponse:
     def test_adk_llm_response(self):
         attrs = {ADK_LLM_RESPONSE: json.dumps({"content": {"parts": [{"text": "ADK response"}]}})}
         assert extract_agent_response_from_attrs(attrs) == "ADK response"
+
+    def test_adk_llm_response_outer_content_pascalcase(self):
+        attrs = {ADK_LLM_RESPONSE: json.dumps({"Content": {"parts": [{"text": "Outer Content only"}]}})}
+        assert extract_agent_response_from_attrs(attrs) == "Outer Content only"
 
     def test_genai_content_based(self):
         attrs = {
