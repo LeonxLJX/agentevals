@@ -1,4 +1,4 @@
-VERSION := $(shell grep '^version' pyproject.toml | cut -d'"' -f2)
+VERSION := $(shell uv run --with hatch hatch version 2>/dev/null)
 WHEEL := dist/agentevals_cli-$(VERSION)-py3-none-any.whl
 
 DOCKER_REGISTRY ?= soloio

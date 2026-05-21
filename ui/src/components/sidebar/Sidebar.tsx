@@ -110,7 +110,7 @@ export const Sidebar: React.FC = () => {
             }}
           />
           {state.version && (
-            <span>v{state.version}</span>
+            <span style={{ fontSize: '0.5rem' }}>v{state.version}</span>
           )}
         </div>
       </nav>

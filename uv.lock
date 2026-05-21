@@ -30,7 +30,6 @@ wheels = [
 
 [[package]]
 name = "agentevals-cli"
-version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -100,7 +99,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "websockets", marker = "extra == 'streaming'", specifier = ">=12.0" },
 ]
-provides-extras = ["live", "streaming", "openai", "postgres"]
+provides-extras = ["live", "openai", "postgres", "streaming"]
 
 [package.metadata.requires-dev]
 dev = [

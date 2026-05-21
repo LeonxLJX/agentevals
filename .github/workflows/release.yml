@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -30,9 +31,6 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: ui/package-lock.json
-
-      - name: Set version from tag
-        run: uv version "${{ github.event.inputs.tag || github.ref_name }}" --package agentevals-cli
 
       - name: Build core and bundled wheels
         run: make release
@@ -51,6 +49,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -65,11 +64,8 @@ jobs:
       # Same bundle as `make release` / `build-bundle`: wheel must include ui/dist in src/agentevals/_static
       # (see [tool.hatch.build] artifacts in pyproject.toml).
       - name: Release Python package (wheel + sdist with bundled UI)
-        env:
-          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           uv sync --package agentevals-cli --all-extras
-          uv version "$VERSION" --package agentevals-cli
 
           make build-ui
           rm -rf src/agentevals/_static
