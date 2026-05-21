@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from click.testing import CliRunner
 
+import agentevals
 from agentevals import cli
 from agentevals.runner import RunResult
 
@@ -163,3 +164,20 @@ def test_run_merges_explicit_metrics_with_config_file(monkeypatch, tmp_path):
         "custom_eval",
         "response_match_score",
     ]
+
+
+def test_version_resolves_from_installed_distribution():
+    assert agentevals.__version__ != "0.0.0-dev", (
+        "agentevals.__version__ fell back to the dev sentinel. Likely causes: "
+        "(1) the dist name in pyproject.toml diverged from the lookup string "
+        "in src/agentevals/__init__.py, or (2) hatch-vcs cannot resolve a "
+        "version (missing git tags in the build environment?)."
+    )
+
+
+def test_cli_version_flag_prints_real_version():
+    result = CliRunner().invoke(cli.main, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert "0.0.0-dev" not in result.output, f"`agentevals --version` printed the dev sentinel: {result.output!r}"
+    assert agentevals.__version__ in result.output
