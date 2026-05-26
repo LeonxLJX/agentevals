@@ -74,7 +74,7 @@ async def main():
 
         agent_response = ""
         async for event in runner.run_async(user_id=user_id, session_id=session.id, new_message=content):
-            if event.content.parts and event.content.parts[0].text:
+            if event.content and event.content.parts and event.content.parts[0].text:
                 agent_response = event.content.parts[0].text
 
         print(f"     Agent: {agent_response}")
