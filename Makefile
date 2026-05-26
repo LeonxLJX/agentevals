@@ -28,7 +28,8 @@ build:
 	uv build
 
 build-docker:
-	docker buildx build --platform $(PLATFORMS) -t $(DOCKER_IMAGE_REF):$(DOCKER_TAG) --push .
+	@test -n "$(VERSION)" || { echo "ERROR: VERSION is empty. Pass VERSION=x.y.z explicitly, or install uv so hatch-vcs can resolve it."; exit 1; }
+	docker buildx build --platform $(PLATFORMS) --build-arg VERSION=$(VERSION) -t $(DOCKER_IMAGE_REF):$(DOCKER_TAG) --push .
 
 build-ui:
 	cd ui && npm ci && npm run build

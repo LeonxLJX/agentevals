@@ -24,6 +24,13 @@ COPY src ./src
 
 COPY --from=ui /build/ui/dist ./src/agentevals/_static
 
+# hatch-vcs reads the version from .git, which the docker build context omits.
+# Pass it in as a build arg. We use the generic SETUPTOOLS_SCM_PRETEND_VERSION
+# because hatch-vcs does not forward dist_name to setuptools-scm, so the
+# per-package SETUPTOOLS_SCM_PRETEND_VERSION_FOR_<DIST> form is never consulted.
+ARG VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION}
+
 RUN uv sync --frozen --no-dev --extra live --extra postgres \
     && groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --home-dir /app --no-log-init app \
