@@ -15,6 +15,7 @@ Tests are synchronous because:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -36,6 +37,11 @@ _skip_no_openai = pytest.mark.skipif(
 _skip_no_google = pytest.mark.skipif(
     not os.environ.get("GOOGLE_API_KEY"),
     reason="GOOGLE_API_KEY not set",
+)
+
+_skip_no_pydantic_ai = pytest.mark.skipif(
+    importlib.util.find_spec("pydantic_ai") is None,
+    reason="pydantic_ai SDK not installed",
 )
 
 
@@ -305,6 +311,7 @@ class TestOpenAIAgentsZeroCode:
         assert session_name in session_ids
 
 
+@_skip_no_pydantic_ai
 @_skip_no_openai
 class TestPydanticAIZeroCode:
     """Run the Pydantic AI zero-code OTLP example and verify session grouping."""

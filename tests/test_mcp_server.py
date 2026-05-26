@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("mcp", reason="mcp SDK requires the [live] extras")
+
 from agentevals.mcp_server import (
     EvaluateSessionsResponse,
     EvaluateTracesResponse,
