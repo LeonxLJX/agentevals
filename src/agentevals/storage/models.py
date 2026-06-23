@@ -84,6 +84,14 @@ class RunSpec(BaseModel):
     eval_config: dict[str, Any] = Field(default_factory=dict)
     sinks: list[dict[str, Any]] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
+    credential_refs: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Map of logical credential name to a secret reference dict. Each reference has a "
+            "'kind' (the resolver to use) plus kind-specific fields, and optional 'provider'/'baseUrl' "
+            "hints for judge construction. Resolved per run; never written to the process environment."
+        ),
+    )
 
 
 class Run(BaseModel):

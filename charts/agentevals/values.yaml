@@ -58,6 +58,20 @@ serviceAccount:
   name: ""
 
 # ==============================================================================
+# RBAC
+# ==============================================================================
+
+# -- Namespaced Role + RoleBinding granting the pod's ServiceAccount read
+# access to Secrets. Enable this when the kubernetes secret resolver reads
+# provider credentials from Secrets via in-cluster config.
+rbac:
+  # -- Create the Role and RoleBinding
+  create: false
+  # -- Restrict the Role to these Secret names. Empty grants get on all
+  # Secrets in the release namespace.
+  secretNames: []
+
+# ==============================================================================
 # Pod
 # ==============================================================================
 

@@ -27,6 +27,14 @@ class BuiltinMetricDef(BaseModel):
     threshold: float | None = Field(default=None, ge=0, le=1)
     judge_model: str | None = None
     trajectory_match_type: str | None = None
+    credential_ref: str | None = Field(
+        default=None,
+        description="Logical name of a RunSpec.credential_refs entry to authenticate this metric's judge.",
+    )
+    judge_provider: str | None = Field(
+        default=None,
+        description="Optional provider hint ('openai', 'anthropic', 'google', ...) when not derivable from judge_model.",
+    )
 
     @field_validator("trajectory_match_type")
     @classmethod

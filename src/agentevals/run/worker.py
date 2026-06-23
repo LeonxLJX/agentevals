@@ -21,6 +21,11 @@ from uuid import UUID
 from google.adk.evaluation.eval_set import EvalSet
 
 from ..config import EvalParams
+from ..resolvers import (
+    reset_resolved_credentials,
+    resolve_credential_refs,
+    set_resolved_credentials,
+)
 from ..runner import RunResult, TraceResult, run_evaluation_from_traces
 from ..storage.config import StorageSettings
 from ..storage.models import Run, RunStatus
@@ -107,7 +112,10 @@ class AsyncRunWorker:
         cancel_event = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat(run.run_id, worker_id, cancel_event))
         sinks = build_sinks(run.spec.sinks or [])
+        cred_token = None
         try:
+            if run.spec.credential_refs:
+                cred_token = set_resolved_credentials(await resolve_credential_refs(run.spec.credential_refs))
             await self._run_evaluation(run, sinks, cancel_event)
         except asyncio.CancelledError:
             await self._runs.update_status(run.run_id, RunStatus.CANCELLED, error="worker cancelled")
@@ -126,6 +134,8 @@ class AsyncRunWorker:
             await self._runs.update_status(run.run_id, RunStatus.FAILED, error=str(exc))
             await sinks.emit_error(run.run_id, str(exc), run.attempt)
         finally:
+            if cred_token is not None:
+                reset_resolved_credentials(cred_token)
             hb_task.cancel()
             try:
                 await hb_task

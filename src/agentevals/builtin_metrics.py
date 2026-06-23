@@ -27,6 +27,8 @@ from google.adk.evaluation.eval_metrics import (
 from google.adk.evaluation.eval_rubrics import Rubric, RubricContent
 from google.adk.evaluation.evaluator import EvaluationResult, Evaluator
 
+from .resolvers import ResolvedCredential, get_resolved_credential
+
 logger = logging.getLogger(__name__)
 
 METRICS_NEEDING_EXPECTED = {
@@ -267,6 +269,96 @@ def get_evaluator(eval_metric: EvalMetric) -> Evaluator:
     return DEFAULT_METRIC_EVALUATOR_REGISTRY.get_evaluator(eval_metric)
 
 
+# Provider hints that select the model-construction path. Class resolution via
+# LLMRegistry is the fallback when no hint is given.
+_LITELLM_PROVIDERS = {
+    "openai",
+    "anthropic",
+    "azure",
+    "azure_ai",
+    "bedrock",
+    "ollama",
+    "ollama_chat",
+    "groq",
+    "together_ai",
+    "mistral",
+    "deepseek",
+    "fireworks_ai",
+    "cohere",
+    "databricks",
+    "ai21",
+}
+_GEMINI_PROVIDERS = {"google", "gemini", "google_ai", "ai_studio"}
+
+
+def _build_judge_model(model_id: str, cred: ResolvedCredential, judge_provider: str | None = None):
+    """Build a judge ``BaseLlm`` carrying *cred* directly, instead of reading the key from env.
+
+    LiteLlm-backed providers take ``api_key`` (and optional ``base_url``) as constructor
+    kwargs that forward into every ``litellm.acompletion`` call. The Gemini-native model
+    class takes no ``api_key``; its cached ``google.genai`` client is replaced with one
+    built from the resolved key. Routing prefers an explicit provider hint and falls back
+    to ADK's ``LLMRegistry`` class resolution for *model_id*.
+    """
+    hint = (judge_provider or cred.provider or "").lower()
+    if hint in _GEMINI_PROVIDERS:
+        use_litellm = False
+    elif hint in _LITELLM_PROVIDERS:
+        use_litellm = True
+    else:
+        from google.adk.models.lite_llm import LiteLlm
+        from google.adk.models.registry import LLMRegistry
+
+        use_litellm = issubclass(LLMRegistry().resolve(model_id), LiteLlm)
+
+    if use_litellm:
+        from google.adk.models.lite_llm import LiteLlm
+
+        kwargs: dict[str, Any] = {"api_key": cred.value}
+        if cred.base_url:
+            kwargs["base_url"] = cred.base_url
+        return LiteLlm(model=model_id, **kwargs)
+
+    from google.adk.models.google_llm import Gemini
+    from google.genai import Client
+    from google.genai import types as genai_types
+
+    model = Gemini(model=model_id)
+    client_kwargs: dict[str, Any] = {"api_key": cred.value}
+    if cred.base_url:
+        client_kwargs["http_options"] = genai_types.HttpOptions(base_url=cred.base_url)
+    # api_client is a functools.cached_property that memoizes into the instance __dict__;
+    # seeding that slot pre-empts the lazily-built client so the judge uses the resolved key.
+    model.__dict__["api_client"] = Client(**client_kwargs)
+    return model
+
+
+def _inject_judge_credential(evaluator: Evaluator, cred: ResolvedCredential, judge_provider: str | None = None) -> None:
+    """Replace a judge evaluator's auto-rater model with one built from *cred*.
+
+    Keyed on the ADK private seam (``_judge_model_options`` / ``_judge_model``, set by
+    ``LlmAsJudge._setup_auto_rater``) rather than on a class, so this single path covers
+    ``FinalResponseMatchV2Evaluator``, the ``rubric_based_*_v1`` evaluators, and
+    ``HallucinationsV1Evaluator`` (which exposes the same attributes without subclassing
+    ``LlmAsJudge``). ``get_evaluator`` returns a fresh instance per evaluation, so mutating
+    it here carries no shared state and is safe across concurrent runs.
+
+    TODO(upstream): propose that ADK ``JudgeModelOptions`` carry a credential or a prebuilt
+    model instance, so judge auth no longer depends on this private seam or process env.
+    """
+    opts = getattr(evaluator, "_judge_model_options", None)
+    if opts is None or not hasattr(evaluator, "_judge_model"):
+        logger.warning("evaluator %s is not judge-backed; cannot inject credential", type(evaluator).__name__)
+        return
+    model_id = getattr(opts, "judge_model", None)
+    if not model_id:
+        logger.warning(
+            "evaluator %s has no resolved judge_model; skipping credential injection", type(evaluator).__name__
+        )
+        return
+    evaluator._judge_model = _build_judge_model(model_id, cred, judge_provider)
+
+
 def extract_trajectory_details(eval_result: EvaluationResult) -> dict[str, Any]:
     """Extract expected vs actual tool call details from trajectory evaluation."""
     comparisons = []
@@ -305,6 +397,8 @@ async def evaluate_builtin_metric(
     judge_model: str | None,
     threshold: float | None,
     match_type: str | None = None,
+    credential_ref: str | None = None,
+    judge_provider: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate a single built-in ADK metric.
 
@@ -325,6 +419,18 @@ async def evaluate_builtin_metric(
     try:
         eval_metric = build_eval_metric(metric_name, judge_model, threshold, match_type=match_type)
         evaluator: Evaluator = get_evaluator(eval_metric)
+
+        if credential_ref:
+            cred = get_resolved_credential(credential_ref)
+            if cred is None:
+                logger.warning(
+                    "metric '%s' references credential '%s' but none was resolved for this run; "
+                    "falling back to ambient auth",
+                    metric_name,
+                    credential_ref,
+                )
+            else:
+                _inject_judge_credential(evaluator, cred, judge_provider)
 
         if metric_name in _METRICS_NEEDING_INVOCATION_EVENTS:
             actual_invocations = _enrich_app_details([_to_invocation_events(inv) for inv in actual_invocations])
