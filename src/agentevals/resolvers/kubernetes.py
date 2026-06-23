@@ -35,7 +35,7 @@ class KubernetesSecretResolver:
         data = secret.data or {}
         if key not in data:
             available = ", ".join(sorted(data)) or "(none)"
-            raise KeyError(f"key '{key}' not found in Secret {namespace}/{name}; available keys: {available}")
+            raise ValueError(f"key '{key}' not found in Secret {namespace}/{name}; available keys: {available}")
         return base64.b64decode(data[key]).decode("utf-8")
 
 

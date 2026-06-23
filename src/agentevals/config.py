@@ -29,11 +29,11 @@ class BuiltinMetricDef(BaseModel):
     trajectory_match_type: str | None = None
     credential_ref: str | None = Field(
         default=None,
-        description="Logical name of a RunSpec.credential_refs entry to authenticate this metric's judge.",
+        description="Logical name of a RunSpec.credential_refs entry whose resolved value is the judge API key.",
     )
-    judge_provider: str | None = Field(
+    judge_base_url: str | None = Field(
         default=None,
-        description="Optional provider hint ('openai', 'anthropic', 'google', ...) when not derivable from judge_model.",
+        description="Optional base URL for the judge endpoint (e.g. an OpenAI-compatible proxy).",
     )
 
     @field_validator("trajectory_match_type")

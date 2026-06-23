@@ -88,8 +88,9 @@ class RunSpec(BaseModel):
         default=None,
         description=(
             "Map of logical credential name to a secret reference dict. Each reference has a "
-            "'kind' (the resolver to use) plus kind-specific fields, and optional 'provider'/'baseUrl' "
-            "hints for judge construction. Resolved per run; never written to the process environment."
+            "'kind' (the resolver to use) plus that kind's locator fields. Resolved per run to its "
+            "secret value; never written to the process environment. How a value is used (e.g. which "
+            "judge provider it authenticates) is configured on the consumer, not the reference."
         ),
     )
 

@@ -1,11 +1,17 @@
-"""Secret resolvers — pluggable, per-evaluation provider credential resolution.
+"""Secret resolvers — a generic, pluggable layer for resolving secret references.
 
-A host attaches a *secret reference* to a run (``RunSpec.credential_refs``); each
-reference is a ``dict`` with a ``kind`` plus kind-specific fields. At run time the
-worker resolves every reference once and stashes the resulting values in a
-:class:`contextvars.ContextVar` scoped to that run's asyncio task, so judge
-construction can read the right key with no ``os.environ`` mutation and no shared
-state across concurrently running evaluations.
+A host attaches *secret references* to a run (``RunSpec.credential_refs``); each
+reference is a ``dict`` with a ``kind`` plus kind-specific locator fields. At run
+time the worker resolves every reference once to its secret value and stashes the
+``logical-name -> value`` map in a :class:`contextvars.ContextVar` scoped to that
+run's asyncio task. Consumers (e.g. judge construction) read the value they need
+with no ``os.environ`` mutation and no shared state across concurrently running
+evaluations.
+
+This layer is deliberately consumer-agnostic: a resolver turns a reference into a
+secret value and nothing more. How that value is used — which provider it
+authenticates, what base URL it pairs with — is the consumer's concern, configured
+where the consumer is built (for judges, on the evaluator definition).
 
 **Plugins:** third-party packages declare setuptools entry points in group
 ``agentevals.secret_resolvers`` (entry **name** = ``kind`` string; **value** =
@@ -24,16 +30,14 @@ import logging
 import os
 from collections.abc import Callable
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
 from importlib.metadata import entry_points
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Protocol, cast
 
 logger = logging.getLogger(__name__)
 
 SECRET_RESOLVER_ENTRY_POINT_GROUP = "agentevals.secret_resolvers"
 
 
-@runtime_checkable
 class SecretResolver(Protocol):
     async def resolve(self, ref: dict[str, Any]) -> str: ...
 
@@ -43,15 +47,6 @@ SecretResolverFactory = Callable[[dict[str, Any]], SecretResolver]
 _PLUGIN_FACTORIES: dict[str, SecretResolverFactory] = {}
 
 
-@dataclass(frozen=True)
-class ResolvedCredential:
-    """A resolved secret plus the passthrough hints used to build the judge model."""
-
-    value: str
-    provider: str | None = None
-    base_url: str | None = None
-
-
 class EnvSecretResolver:
     """Resolve ``{"kind": "env", "name": "OPENAI_API_KEY"}`` from ``os.environ``."""
 
@@ -59,10 +54,10 @@ class EnvSecretResolver:
         name = ref.get("name")
         if not name:
             raise ValueError("env secret reference requires a 'name' field")
-        try:
-            return os.environ[name]
-        except KeyError as exc:
-            raise KeyError(f"environment variable {name!r} is not set") from exc
+        value = os.environ.get(name)
+        if value is None:
+            raise ValueError(f"environment variable {name!r} is not set")
+        return value
 
 
 def create_env_resolver(spec: dict[str, Any]) -> EnvSecretResolver:
@@ -129,39 +124,34 @@ def build_resolver(ref: dict[str, Any]) -> SecretResolver:
     kind = ref.get("kind")
     if not kind:
         raise ValueError("secret reference is missing a 'kind' field")
-    factory = _merge_resolver_factories().get(kind)
+    factories = _merge_resolver_factories()
+    factory = factories.get(kind)
     if factory is None:
         raise ValueError(
-            f"unknown secret resolver kind '{kind}'. Available: {', '.join(registered_resolver_kinds()) or '(none)'}"
+            f"unknown secret resolver kind '{kind}'. Available: {', '.join(sorted(factories)) or '(none)'}"
         )
     return factory(ref)
 
 
-async def resolve_credential_refs(refs: dict[str, dict[str, Any]]) -> dict[str, ResolvedCredential]:
-    """Resolve every ``logical-name -> reference`` entry to a :class:`ResolvedCredential`.
+async def resolve_credential_refs(refs: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Resolve every ``logical-name -> reference`` entry to its secret value.
 
-    ``provider`` and ``baseUrl`` ride along as passthrough hints for judge
-    construction; the resolver itself only reads its own kind-specific fields.
+    Each resolver reads only its own kind-specific locator fields. Any non-locator
+    fields a host puts on a reference are ignored here; consumer-specific config
+    belongs with the consumer (for judges, on the evaluator definition).
     """
-    resolved: dict[str, ResolvedCredential] = {}
+    resolved: dict[str, str] = {}
     for logical_name, ref in refs.items():
         resolver = build_resolver(ref)
-        value = await resolver.resolve(ref)
-        resolved[logical_name] = ResolvedCredential(
-            value=value,
-            provider=ref.get("provider"),
-            base_url=ref.get("baseUrl") or ref.get("base_url"),
-        )
+        resolved[logical_name] = await resolver.resolve(ref)
     return resolved
 
 
-_RESOLVED: ContextVar[dict[str, ResolvedCredential] | None] = ContextVar(
-    "agentevals_resolved_credentials", default=None
-)
+_RESOLVED: ContextVar[dict[str, str] | None] = ContextVar("agentevals_resolved_credentials", default=None)
 
 
-def set_resolved_credentials(mapping: dict[str, ResolvedCredential]) -> Token:
-    """Scope a resolved-credential map to the current asyncio task. Returns a reset token."""
+def set_resolved_credentials(mapping: dict[str, str]) -> Token:
+    """Scope a ``logical-name -> secret value`` map to the current asyncio task. Returns a reset token."""
     return _RESOLVED.set(mapping)
 
 
@@ -169,8 +159,8 @@ def reset_resolved_credentials(token: Token) -> None:
     _RESOLVED.reset(token)
 
 
-def get_resolved_credential(logical_name: str) -> ResolvedCredential | None:
-    """Look up a credential resolved for the current run, or ``None`` if absent."""
+def get_resolved_credential(logical_name: str) -> str | None:
+    """Look up a secret value resolved for the current run, or ``None`` if absent."""
     mapping = _RESOLVED.get()
     if not mapping:
         return None
