@@ -61,11 +61,14 @@ class TestInjection:
 
 
 class TestFailClosed:
-    async def test_unresolved_credential_errors_instead_of_ambient_auth(self):
+    async def test_unresolved_credential_errors_instead_of_ambient_auth(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        # hallucinations_v1 is judge-backed but not in METRICS_NEEDING_EXPECTED, so the
+        # credential check is reached with no golden eval set or sentinel invocations.
         result = await evaluate_builtin_metric(
-            metric_name="final_response_match_v2",
+            metric_name="hallucinations_v1",
             actual_invocations=[],
-            expected_invocations=[object()],
+            expected_invocations=None,
             judge_model="openai/gpt-4o",
             threshold=0.5,
             credential_ref="judge-openai",
@@ -86,8 +89,10 @@ class TestConcurrencyIsolation:
             # read back. With a shared global instead of a ContextVar, both tasks
             # would observe the last writer's key and this assertion would fail.
             await asyncio.sleep(0)
+            resolved = get_resolved_credential("judge")
+            assert resolved is not None
             evaluator = _judge_evaluator()
-            _inject_judge_credential(evaluator, get_resolved_credential("judge"))
+            _inject_judge_credential(evaluator, resolved)
             return evaluator._judge_model._additional_args["api_key"]
 
         first, second = await asyncio.gather(run_one("sk-AAA"), run_one("sk-BBB"))
