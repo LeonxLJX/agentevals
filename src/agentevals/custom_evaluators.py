@@ -453,6 +453,8 @@ async def evaluate_custom_evaluator(
             judge_model=evaluator_def.judge_model,
             threshold=evaluator_def.threshold,
             match_type=evaluator_def.trajectory_match_type,
+            credential_ref=evaluator_def.credential_ref,
+            judge_base_url=evaluator_def.judge_base_url,
         )
 
     if isinstance(evaluator_def, OpenAIEvalDef):
