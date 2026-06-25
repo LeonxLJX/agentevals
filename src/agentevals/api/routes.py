@@ -9,7 +9,7 @@ import os
 import re
 import shutil
 import tempfile
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -59,19 +59,18 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def _resolved_credentials(refs: dict[str, dict[str, Any]] | None):
-    """Scope a request's resolved credentialRefs to the current task, then clear them.
+@contextmanager
+def _scoped_credentials(resolved: dict[str, str] | None):
+    """Scope an already-resolved ``logical-name -> secret value`` map to the current task.
 
     Mirrors the async worker's set/reset (``run/worker.py``) so the synchronous evaluate
-    paths populate the same credential ContextVar that judge graders read. Absent refs is
-    a no-op, keeping callers byte-for-byte backward compatible. For streaming endpoints,
-    enter this BEFORE ``asyncio.create_task`` so the eval task inherits the populated
-    context (a child task snapshots its parent's context at creation time).
+    paths populate the same credential ContextVar that judge graders read. A falsy map is a
+    no-op, keeping callers byte-for-byte backward compatible. For streaming endpoints, enter
+    this BEFORE ``asyncio.create_task`` so the eval task inherits the populated context (a
+    child task snapshots its parent's context at creation time). Resolution is done by the
+    caller so its failures surface as request errors rather than scoping concerns.
     """
-    token = None
-    if refs:
-        token = set_resolved_credentials(await resolve_credential_refs(refs))
+    token = set_resolved_credentials(resolved) if resolved else None
     try:
         yield
     finally:
@@ -79,15 +78,36 @@ async def _resolved_credentials(refs: dict[str, dict[str, Any]] | None):
             reset_resolved_credentials(token)
 
 
-def _parse_credential_refs_form(raw: str | None) -> dict[str, dict[str, Any]] | None:
-    """Parse the multipart ``credentialRefs`` form field (a JSON string) into a dict.
+async def _resolve_credentials(refs: dict[str, dict[str, Any]] | None) -> dict[str, str] | None:
+    """Resolve credentialRefs to secret values, mapping bad references to a 400.
 
-    Empty/absent is treated as no credentials. Raises ``json.JSONDecodeError`` on bad
-    JSON; callers map that to the same error shape they use for a bad ``config``.
+    Resolver ``ValueError``s (missing/unknown ``kind``, missing locator fields, an unset
+    env var) are request/input errors, so surface them as 400s instead of letting them
+    bubble up as 500s. Infrastructure failures from custom resolvers raise other exception
+    types and are left to propagate as 5xx.
+    """
+    if not refs:
+        return None
+    try:
+        return await resolve_credential_refs(refs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Could not resolve credentialRefs: {exc}") from exc
+
+
+def _parse_credential_refs_form(raw: str | None) -> dict[str, dict[str, Any]] | None:
+    """Parse and validate the multipart ``credential_refs`` form field (a JSON object string).
+
+    Empty/absent is treated as no credentials. Raises ``ValueError`` (which
+    ``json.JSONDecodeError`` subclasses) on malformed JSON or a non-object shape, so callers
+    map both to the same error they use for a bad ``config``. The JSON request endpoints get
+    this shape check for free from the ``EvaluateJsonRequest`` model.
     """
     if not raw:
         return None
-    return json.loads(raw)
+    refs = json.loads(raw)
+    if not isinstance(refs, dict) or not all(isinstance(ref, dict) for ref in refs.values()):
+        raise ValueError("credentialRefs must be a JSON object mapping each logical name to a reference object")
+    return refs
 
 
 def _camel_keys(obj: Any) -> Any:
@@ -523,8 +543,8 @@ async def evaluate_traces(
 
         try:
             cred_refs = _parse_credential_refs_form(credential_refs)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid credentialRefs JSON: {exc}") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid credentialRefs: {exc}") from exc
 
         trace_paths = []
         for trace_file in trace_files:
@@ -593,7 +613,8 @@ async def evaluate_traces(
             len(trace_paths),
             [e.name for e in eval_config.evaluators],
         )
-        async with _resolved_credentials(cred_refs):
+        resolved_creds = await _resolve_credentials(cred_refs)
+        with _scoped_credentials(resolved_creds):
             result = await run_evaluation(eval_config)
 
         run_id = await _maybe_persist_evaluate_run(
@@ -642,8 +663,8 @@ async def evaluate_traces_stream(
 
             try:
                 cred_refs = _parse_credential_refs_form(credential_refs)
-            except json.JSONDecodeError as exc:
-                yield f"data: {SSEErrorEvent(error=f'Invalid credentialRefs JSON: {exc}').model_dump_json(by_alias=True)}\n\n"
+            except ValueError as exc:
+                yield f"data: {SSEErrorEvent(error=f'Invalid credentialRefs: {exc}').model_dump_json(by_alias=True)}\n\n"
                 return
 
             trace_paths = []
@@ -727,7 +748,13 @@ async def evaluate_traces_stream(
                 result = await run_evaluation(eval_config, progress_callback, trace_progress_callback)
                 await queue.put(("done", result))
 
-            async with _resolved_credentials(cred_refs):
+            try:
+                resolved_creds = await resolve_credential_refs(cred_refs) if cred_refs else None
+            except ValueError as exc:
+                yield f"data: {SSEErrorEvent(error=f'Could not resolve credentialRefs: {exc}').model_dump_json(by_alias=True)}\n\n"
+                return
+
+            with _scoped_credentials(resolved_creds):
                 eval_task = asyncio.create_task(run_with_progress())
 
                 try:
@@ -829,9 +856,10 @@ async def evaluate_traces_json(request: EvaluateJsonRequest, raw_request: Reques
     """Evaluate OTLP JSON traces passed in the request body."""
     _check_json_body_size(raw_request)
     traces, eval_set = _parse_json_request(request)
+    resolved_creds = await _resolve_credentials(request.credential_refs)
 
     try:
-        async with _resolved_credentials(request.credential_refs):
+        with _scoped_credentials(resolved_creds):
             result = await run_evaluation_from_traces(
                 traces=traces,
                 config=request.config,
@@ -848,6 +876,8 @@ async def evaluate_traces_json(request: EvaluateJsonRequest, raw_request: Reques
         if run_id:
             result.run_id = run_id
         return StandardResponse(data=_camel_keys(result.model_dump(by_alias=True)))
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("JSON evaluation failed")
         raise HTTPException(status_code=500, detail=f"Internal error: {exc!s}") from exc
@@ -898,7 +928,15 @@ async def evaluate_traces_json_stream(request: EvaluateJsonRequest, raw_request:
                 )
                 await queue.put(("done", result))
 
-            async with _resolved_credentials(request.credential_refs):
+            try:
+                resolved_creds = (
+                    await resolve_credential_refs(request.credential_refs) if request.credential_refs else None
+                )
+            except ValueError as exc:
+                yield _sse_error(f"Could not resolve credentialRefs: {exc}")
+                return
+
+            with _scoped_credentials(resolved_creds):
                 eval_task = asyncio.create_task(run_with_progress())
 
                 try:

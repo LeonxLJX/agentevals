@@ -594,6 +594,31 @@ class TestEvaluateTraces:
         assert resp.status_code == 400
         assert "credentialRefs" in resp.json()["detail"]
 
+    def test_evaluate_credential_refs_wrong_shape_returns_400(self):
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={"config": _eval_config_json(), "credential_refs": json.dumps(["not", "a", "map"])},
+        )
+        assert resp.status_code == 400
+        assert "credentialRefs" in resp.json()["detail"]
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_unresolvable_credential_returns_400(self, mock_eval, monkeypatch):
+        monkeypatch.delenv("AE_MISSING_KEY", raising=False)
+        mock_eval.return_value = _make_run_result()
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={
+                "config": json.dumps(_judge_config()),
+                "credential_refs": json.dumps({"k": {"kind": "env", "name": "AE_MISSING_KEY"}}),
+            },
+        )
+        assert resp.status_code == 400
+        assert "Could not resolve credentialRefs" in resp.json()["detail"]
+        mock_eval.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # POST /api/evaluate/stream (SSE)
@@ -888,6 +913,29 @@ class TestEvaluateJson:
         _assert_envelope(resp)
         assert captured["judge_key"] is None
 
+    def test_evaluate_json_credential_refs_wrong_shape_returns_422(self):
+        resp = self.client.post(
+            "/api/evaluate/json",
+            json={"traces": _make_otlp_json_payload(), "credentialRefs": ["not", "a", "map"]},
+        )
+        assert resp.status_code == 422
+
+    @patch("agentevals.api.routes.run_evaluation_from_traces", new_callable=AsyncMock)
+    def test_evaluate_json_unresolvable_credential_returns_400(self, mock_eval, monkeypatch):
+        monkeypatch.delenv("AE_MISSING_KEY", raising=False)
+        mock_eval.return_value = _make_run_result()
+        resp = self.client.post(
+            "/api/evaluate/json",
+            json={
+                "traces": _make_otlp_json_payload(),
+                "config": _judge_config(),
+                "credentialRefs": {"k": {"kind": "env", "name": "AE_MISSING_KEY"}},
+            },
+        )
+        assert resp.status_code == 400
+        assert "Could not resolve credentialRefs" in resp.json()["detail"]
+        mock_eval.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # POST /api/evaluate/json/stream (SSE)
@@ -967,6 +1015,27 @@ class TestEvaluateJsonStream:
         )
         assert '"done"' in resp.text
         assert captured["judge_key"] == "sk-resolved-json-stream"
+
+    @patch("agentevals.api.routes.run_evaluation_from_traces", new_callable=AsyncMock)
+    @patch("agentevals.api.routes.OtlpJsonLoader")
+    def test_stream_unresolvable_credential_yields_error(self, mock_loader_cls, mock_eval, monkeypatch):
+        monkeypatch.delenv("AE_MISSING_KEY", raising=False)
+        mock_trace = MagicMock()
+        mock_trace.trace_id = "abc123"
+        mock_loader_cls.return_value.load_from_dict.return_value = [mock_trace]
+        mock_eval.return_value = _make_run_result()
+        resp = self.client.post(
+            "/api/evaluate/json/stream",
+            json={
+                "traces": _make_otlp_json_payload(),
+                "config": _judge_config(),
+                "credentialRefs": {"k": {"kind": "env", "name": "AE_MISSING_KEY"}},
+            },
+        )
+        assert '"error"' in resp.text
+        assert "Could not resolve credentialRefs" in resp.text
+        assert '"done"' not in resp.text
+        mock_eval.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
