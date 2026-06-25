@@ -142,6 +142,15 @@ class EvaluateJsonRequest(CamelModel):
     traces: dict = Field(description="OTLP JSON export with resourceSpans structure.")
     config: EvalParams = Field(default_factory=EvalParams, description="Evaluation parameters.")
     eval_set: dict | None = Field(default=None, description="Optional ADK EvalSet JSON.")
+    credential_refs: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Map of logical credential name to a secret reference dict. Each reference has a "
+            "'kind' (the resolver to use) plus that kind's locator fields. Resolved per call to its "
+            "secret value; never written to the process environment. How a value is used (e.g. which "
+            "judge provider it authenticates) is configured on the consumer, not the reference."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

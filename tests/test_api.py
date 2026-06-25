@@ -229,6 +229,35 @@ def _eval_config_json(**overrides) -> str:
     return json.dumps(cfg)
 
 
+def _judge_config(**overrides) -> dict:
+    cfg = {
+        "evaluators": [
+            {"name": "hallucinations_v1", "type": "builtin", "judgeModel": "openai/gpt-4o", "credentialRef": "k"}
+        ]
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+def _capturing_run_eval(captured: dict):
+    """Build an AsyncMock side_effect that records, at evaluator-invocation time, the value the
+    judge would resolve for credential ``k``.
+
+    This is the correct boundary for the sync routes: their job is to populate the credential
+    ContextVar before the evaluator runs. The ContextVar -> judge injection step itself is
+    already covered by test_credential_injection.py, so recording ``get_resolved_credential``
+    here (rather than mocking it) is not a false positive -- it fails when the route omits the
+    set/reset, which is exactly the gap being closed.
+    """
+    from agentevals.resolvers import get_resolved_credential
+
+    def _side_effect(*args, **kwargs):
+        captured["judge_key"] = get_resolved_credential("k")
+        return _make_run_result()
+
+    return _side_effect
+
+
 # ---------------------------------------------------------------------------
 # Model Serialization
 # ---------------------------------------------------------------------------
@@ -528,6 +557,43 @@ class TestEvaluateTraces:
         )
         assert resp.status_code in (400, 422)
 
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_resolves_credential_refs(self, mock_eval, monkeypatch):
+        monkeypatch.setenv("AE_TEST_JUDGE_KEY", "sk-resolved-multipart")
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={
+                "config": json.dumps(_judge_config()),
+                "credential_refs": json.dumps({"k": {"kind": "env", "name": "AE_TEST_JUDGE_KEY"}}),
+            },
+        )
+        _assert_envelope(resp)
+        assert captured["judge_key"] == "sk-resolved-multipart"
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_without_credential_refs_is_noop(self, mock_eval):
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={"config": _eval_config_json()},
+        )
+        _assert_envelope(resp)
+        assert captured["judge_key"] is None
+
+    def test_evaluate_bad_credential_refs_returns_400(self):
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={"config": _eval_config_json(), "credential_refs": "{not json"},
+        )
+        assert resp.status_code == 400
+        assert "credentialRefs" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # POST /api/evaluate/stream (SSE)
@@ -590,6 +656,34 @@ class TestEvaluateStream:
         assert done["done"] is True
         assert "result" in done
         assert "traceResults" in done["result"]
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    @patch("agentevals.api.routes.load_traces")
+    def test_stream_resolves_credential_refs(self, mock_load_traces, mock_eval, monkeypatch):
+        monkeypatch.setenv("AE_TEST_JUDGE_KEY", "sk-resolved-stream")
+        mock_load_traces.return_value = []
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate/stream",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={
+                "config": json.dumps(_judge_config()),
+                "credential_refs": json.dumps({"k": {"kind": "env", "name": "AE_TEST_JUDGE_KEY"}}),
+            },
+        )
+        assert '"done"' in resp.text
+        assert captured["judge_key"] == "sk-resolved-stream"
+
+    def test_stream_bad_credential_refs(self):
+        resp = self.client.post(
+            "/api/evaluate/stream",
+            files={"trace_files": ("trace.json", io.BytesIO(_make_trace_json()))},
+            data={"config": _eval_config_json(), "credential_refs": "{not json"},
+        )
+        assert resp.status_code == 200
+        assert '"error"' in resp.text
+        assert "credentialRefs" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -767,6 +861,33 @@ class TestEvaluateJson:
         body = _assert_envelope(resp)
         assert "traceResults" in body["data"]
 
+    @patch("agentevals.api.routes.run_evaluation_from_traces", new_callable=AsyncMock)
+    def test_evaluate_json_resolves_credential_refs(self, mock_eval, monkeypatch):
+        monkeypatch.setenv("AE_TEST_JUDGE_KEY", "sk-resolved-json")
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate/json",
+            json={
+                "traces": _make_otlp_json_payload(),
+                "config": _judge_config(),
+                "credentialRefs": {"k": {"kind": "env", "name": "AE_TEST_JUDGE_KEY"}},
+            },
+        )
+        _assert_envelope(resp)
+        assert captured["judge_key"] == "sk-resolved-json"
+
+    @patch("agentevals.api.routes.run_evaluation_from_traces", new_callable=AsyncMock)
+    def test_evaluate_json_without_credential_refs_is_noop(self, mock_eval):
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate/json",
+            json={"traces": _make_otlp_json_payload(), "config": _judge_config()},
+        )
+        _assert_envelope(resp)
+        assert captured["judge_key"] is None
+
 
 # ---------------------------------------------------------------------------
 # POST /api/evaluate/json/stream (SSE)
@@ -826,6 +947,26 @@ class TestEvaluateJsonStream:
         body = resp.text
         assert '"error"' in body
         assert "No traces" in body
+
+    @patch("agentevals.api.routes.run_evaluation_from_traces", new_callable=AsyncMock)
+    @patch("agentevals.api.routes.OtlpJsonLoader")
+    def test_stream_resolves_credential_refs(self, mock_loader_cls, mock_eval, monkeypatch):
+        monkeypatch.setenv("AE_TEST_JUDGE_KEY", "sk-resolved-json-stream")
+        mock_trace = MagicMock()
+        mock_trace.trace_id = "abc123"
+        mock_loader_cls.return_value.load_from_dict.return_value = [mock_trace]
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_run_eval(captured)
+        resp = self.client.post(
+            "/api/evaluate/json/stream",
+            json={
+                "traces": _make_otlp_json_payload(),
+                "config": _judge_config(),
+                "credentialRefs": {"k": {"kind": "env", "name": "AE_TEST_JUDGE_KEY"}},
+            },
+        )
+        assert '"done"' in resp.text
+        assert captured["judge_key"] == "sk-resolved-json-stream"
 
 
 # ---------------------------------------------------------------------------

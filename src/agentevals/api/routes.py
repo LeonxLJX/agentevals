@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import tempfile
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -23,6 +24,11 @@ from ..converter import convert_traces
 from ..extraction import get_extractor
 from ..loader import load_traces
 from ..loader.otlp import OtlpJsonLoader
+from ..resolvers import (
+    reset_resolved_credentials,
+    resolve_credential_refs,
+    set_resolved_credentials,
+)
 from ..runner import (
     RunResult,
     load_eval_set,
@@ -51,6 +57,37 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _resolved_credentials(refs: dict[str, dict[str, Any]] | None):
+    """Scope a request's resolved credentialRefs to the current task, then clear them.
+
+    Mirrors the async worker's set/reset (``run/worker.py``) so the synchronous evaluate
+    paths populate the same credential ContextVar that judge graders read. Absent refs is
+    a no-op, keeping callers byte-for-byte backward compatible. For streaming endpoints,
+    enter this BEFORE ``asyncio.create_task`` so the eval task inherits the populated
+    context (a child task snapshots its parent's context at creation time).
+    """
+    token = None
+    if refs:
+        token = set_resolved_credentials(await resolve_credential_refs(refs))
+    try:
+        yield
+    finally:
+        if token is not None:
+            reset_resolved_credentials(token)
+
+
+def _parse_credential_refs_form(raw: str | None) -> dict[str, dict[str, Any]] | None:
+    """Parse the multipart ``credentialRefs`` form field (a JSON string) into a dict.
+
+    Empty/absent is treated as no credentials. Raises ``json.JSONDecodeError`` on bad
+    JSON; callers map that to the same error shape they use for a bad ``config``.
+    """
+    if not raw:
+        return None
+    return json.loads(raw)
 
 
 def _camel_keys(obj: Any) -> Any:
@@ -462,6 +499,7 @@ async def evaluate_traces(
     trace_files: list[UploadFile] = File(...),
     config: str = Form(...),
     eval_set_file: UploadFile | None = File(None),
+    credential_refs: str | None = Form(None),
 ):
     """
     Evaluate agent traces using the provided evaluator configuration.
@@ -470,6 +508,8 @@ async def evaluate_traces(
         trace_files: List of Jaeger or OTLP JSON trace files
         config: JSON string with evaluation configuration
         eval_set_file: Optional golden eval set file
+        credential_refs: Optional JSON string mapping logical credential names to
+            secret references, resolved so LLM-as-Judge graders can authenticate
 
     Returns:
         RunResult with trace results and any errors
@@ -480,6 +520,11 @@ async def evaluate_traces(
             config_dict = json.loads(config)
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail=f"Invalid config JSON: {exc}") from exc
+
+        try:
+            cred_refs = _parse_credential_refs_form(credential_refs)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid credentialRefs JSON: {exc}") from exc
 
         trace_paths = []
         for trace_file in trace_files:
@@ -548,7 +593,8 @@ async def evaluate_traces(
             len(trace_paths),
             [e.name for e in eval_config.evaluators],
         )
-        result = await run_evaluation(eval_config)
+        async with _resolved_credentials(cred_refs):
+            result = await run_evaluation(eval_config)
 
         run_id = await _maybe_persist_evaluate_run(
             request,
@@ -580,6 +626,7 @@ async def evaluate_traces_stream(
     trace_files: list[UploadFile] = File(...),
     config: str = Form(...),
     eval_set_file: UploadFile | None = File(None),
+    credential_refs: str | None = Form(None),
 ):
     """Evaluate traces with real-time progress via SSE."""
     temp_dir = tempfile.mkdtemp()
@@ -591,6 +638,12 @@ async def evaluate_traces_stream(
                 config_dict = json.loads(config)
             except json.JSONDecodeError as exc:
                 yield f"data: {SSEErrorEvent(error=f'Invalid config JSON: {exc}').model_dump_json(by_alias=True)}\n\n"
+                return
+
+            try:
+                cred_refs = _parse_credential_refs_form(credential_refs)
+            except json.JSONDecodeError as exc:
+                yield f"data: {SSEErrorEvent(error=f'Invalid credentialRefs JSON: {exc}').model_dump_json(by_alias=True)}\n\n"
                 return
 
             trace_paths = []
@@ -674,47 +727,48 @@ async def evaluate_traces_stream(
                 result = await run_evaluation(eval_config, progress_callback, trace_progress_callback)
                 await queue.put(("done", result))
 
-            eval_task = asyncio.create_task(run_with_progress())
+            async with _resolved_credentials(cred_refs):
+                eval_task = asyncio.create_task(run_with_progress())
 
-            try:
-                while True:
-                    msg = await queue.get()
-                    tag, payload = msg
+                try:
+                    while True:
+                        msg = await queue.get()
+                        tag, payload = msg
 
-                    if tag == "done":
-                        run_id = await _maybe_persist_evaluate_run(
-                            request,
-                            params=eval_config,
-                            eval_set_dict=_load_eval_set_dict(eval_set_path),
-                            trace_format=eval_config.trace_format,
-                            upload_filenames=upload_filenames,
-                            run_result=payload,
-                        )
-                        if run_id:
-                            payload.run_id = run_id
-                        evt = SSEDoneEvent(
-                            result=_camel_keys(payload.model_dump(by_alias=True)),
-                        )
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-                        break
-                    elif tag == "trace_progress":
-                        evt = SSETraceProgressEvent(
-                            trace_progress=SSETraceProgress(
-                                trace_id=payload.trace_id,
-                                partial_result=_camel_keys(payload.model_dump(by_alias=True)),
+                        if tag == "done":
+                            run_id = await _maybe_persist_evaluate_run(
+                                request,
+                                params=eval_config,
+                                eval_set_dict=_load_eval_set_dict(eval_set_path),
+                                trace_format=eval_config.trace_format,
+                                upload_filenames=upload_filenames,
+                                run_result=payload,
                             )
-                        )
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-                    elif tag == "progress":
-                        evt = SSEProgressEvent(message=payload)
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-            finally:
-                if not eval_task.done():
-                    eval_task.cancel()
-                    try:
-                        await eval_task
-                    except asyncio.CancelledError:
-                        pass
+                            if run_id:
+                                payload.run_id = run_id
+                            evt = SSEDoneEvent(
+                                result=_camel_keys(payload.model_dump(by_alias=True)),
+                            )
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                            break
+                        elif tag == "trace_progress":
+                            evt = SSETraceProgressEvent(
+                                trace_progress=SSETraceProgress(
+                                    trace_id=payload.trace_id,
+                                    partial_result=_camel_keys(payload.model_dump(by_alias=True)),
+                                )
+                            )
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                        elif tag == "progress":
+                            evt = SSEProgressEvent(message=payload)
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                finally:
+                    if not eval_task.done():
+                        eval_task.cancel()
+                        try:
+                            await eval_task
+                        except asyncio.CancelledError:
+                            pass
 
         except Exception as exc:
             logger.exception("Evaluation stream failed")
@@ -777,11 +831,12 @@ async def evaluate_traces_json(request: EvaluateJsonRequest, raw_request: Reques
     traces, eval_set = _parse_json_request(request)
 
     try:
-        result = await run_evaluation_from_traces(
-            traces=traces,
-            config=request.config,
-            eval_set=eval_set,
-        )
+        async with _resolved_credentials(request.credential_refs):
+            result = await run_evaluation_from_traces(
+                traces=traces,
+                config=request.config,
+                eval_set=eval_set,
+            )
         run_id = await _maybe_persist_evaluate_run(
             raw_request,
             params=request.config,
@@ -843,47 +898,48 @@ async def evaluate_traces_json_stream(request: EvaluateJsonRequest, raw_request:
                 )
                 await queue.put(("done", result))
 
-            eval_task = asyncio.create_task(run_with_progress())
+            async with _resolved_credentials(request.credential_refs):
+                eval_task = asyncio.create_task(run_with_progress())
 
-            try:
-                while True:
-                    msg = await queue.get()
-                    tag, payload = msg
+                try:
+                    while True:
+                        msg = await queue.get()
+                        tag, payload = msg
 
-                    if tag == "done":
-                        run_id = await _maybe_persist_evaluate_run(
-                            raw_request,
-                            params=request.config,
-                            eval_set_dict=request.eval_set,
-                            trace_format=None,
-                            upload_filenames=None,
-                            run_result=payload,
-                        )
-                        if run_id:
-                            payload.run_id = run_id
-                        evt = SSEDoneEvent(
-                            result=_camel_keys(payload.model_dump(by_alias=True)),
-                        )
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-                        break
-                    elif tag == "trace_progress":
-                        evt = SSETraceProgressEvent(
-                            trace_progress=SSETraceProgress(
-                                trace_id=payload.trace_id,
-                                partial_result=_camel_keys(payload.model_dump(by_alias=True)),
+                        if tag == "done":
+                            run_id = await _maybe_persist_evaluate_run(
+                                raw_request,
+                                params=request.config,
+                                eval_set_dict=request.eval_set,
+                                trace_format=None,
+                                upload_filenames=None,
+                                run_result=payload,
                             )
-                        )
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-                    elif tag == "progress":
-                        evt = SSEProgressEvent(message=payload)
-                        yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
-            finally:
-                if not eval_task.done():
-                    eval_task.cancel()
-                    try:
-                        await eval_task
-                    except asyncio.CancelledError:
-                        pass
+                            if run_id:
+                                payload.run_id = run_id
+                            evt = SSEDoneEvent(
+                                result=_camel_keys(payload.model_dump(by_alias=True)),
+                            )
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                            break
+                        elif tag == "trace_progress":
+                            evt = SSETraceProgressEvent(
+                                trace_progress=SSETraceProgress(
+                                    trace_id=payload.trace_id,
+                                    partial_result=_camel_keys(payload.model_dump(by_alias=True)),
+                                )
+                            )
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                        elif tag == "progress":
+                            evt = SSEProgressEvent(message=payload)
+                            yield f"data: {evt.model_dump_json(by_alias=True)}\n\n"
+                finally:
+                    if not eval_task.done():
+                        eval_task.cancel()
+                        try:
+                            await eval_task
+                        except asyncio.CancelledError:
+                            pass
 
         except Exception as exc:
             logger.exception("JSON evaluation stream failed")
