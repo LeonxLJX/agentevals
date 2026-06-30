@@ -5,8 +5,19 @@ import type {
   MetricMetadata,
   StandardResponse,
   ConvertTracesResponse,
+  Run,
+  RunStatus,
 } from '../lib/types';
 import { config } from '../config';
+
+export class StorageUnavailableError extends Error {
+  constructor() {
+    super(
+      'Run history requires the durable storage backend. Start the server with AGENTEVALS_STORAGE_BACKEND=postgres and AGENTEVALS_DATABASE_URL set.',
+    );
+    this.name = 'StorageUnavailableError';
+  }
+}
 
 const API_BASE_URL = `${config.api.baseUrl}/api`;
 
@@ -184,6 +195,28 @@ export async function evaluateTracesStreaming(
       onError(new Error('Unknown error occurred during streaming evaluation'));
     }
   }
+}
+
+export async function listRuns(options?: {
+  status?: RunStatus[];
+  limit?: number;
+  before?: string;
+}): Promise<Run[]> {
+  const params = new URLSearchParams();
+  (options?.status ?? []).forEach(s => params.append('status', s));
+  if (options?.limit != null) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString();
+
+  const response = await fetch(`${config.api.endpoints.runs}${query ? `?${query}` : ''}`);
+
+  if (response.status === 503) {
+    throw new StorageUnavailableError();
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to list runs: ${response.statusText}`);
+  }
+  return unwrap<Run[]>(response);
 }
 
 export async function listMetrics(): Promise<MetricMetadata[]> {

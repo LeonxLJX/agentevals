@@ -7,6 +7,7 @@ import { InspectorView } from './components/inspector/InspectorView';
 import { BuilderView } from './components/builder/BuilderView';
 import { LiveStreamingView } from './components/streaming/LiveStreamingView';
 import { AnnotationQueueView } from './components/annotation-queue/AnnotationQueueView';
+import { RunsView } from './components/runs/RunsView';
 import { Sidebar } from './components/sidebar/Sidebar';
 
 function AppContent() {
@@ -24,6 +25,7 @@ function AppContent() {
         {state.currentView === 'builder' && <BuilderView />}
         {state.currentView === 'streaming' && <LiveStreamingView />}
         {state.currentView === 'annotation-queue' && <AnnotationQueueView />}
+        {state.currentView === 'runs' && <RunsView />}
         {state.currentView === 'comparison' && (
           <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)' }}>
             Comparison view coming soon...

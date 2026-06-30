@@ -233,7 +233,56 @@ export interface EvalSet {
 }
 
 // View types
-export type ViewType = 'welcome' | 'upload' | 'dashboard' | 'inspector' | 'comparison' | 'builder' | 'streaming' | 'annotation-queue';
+export type ViewType = 'welcome' | 'upload' | 'dashboard' | 'inspector' | 'comparison' | 'builder' | 'streaming' | 'annotation-queue' | 'runs';
+
+// Persisted run history (durable storage, GET /api/runs)
+export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface ResultCounts {
+  passed: number;
+  failed: number;
+  errored: number;
+  skipped: number;
+}
+
+// One entry per evaluator in summary.per_metric. avg_score is null when no
+// invocation of that evaluator produced a numeric score (e.g. it only errored).
+export interface PerMetricSummary extends ResultCounts {
+  avg_score: number | null;
+}
+
+// summary is a free-form dict on the backend, so its keys stay snake_case on
+// the wire (the camelCase alias generator only renames declared model fields).
+export interface RunSummary {
+  trace_count: number;
+  result_counts: ResultCounts;
+  per_metric?: Record<string, PerMetricSummary>;
+  errors?: string[];
+  performance_metrics?: { models?: string[] } & Record<string, unknown>;
+}
+
+// spec.evalSet/evalConfig are stored as raw dicts, so their inner keys keep
+// the original snake_case (e.g. ADK eval_set_id) rather than being camelCased.
+export interface RunSpecSummary {
+  approach?: string;
+  evalSet?: { eval_set_id?: string; name?: string; eval_cases?: unknown[] } | null;
+  evalConfig?: { evaluators?: Array<{ name?: string; type?: string }> } & Record<string, unknown>;
+  target?: { kind?: string } & Record<string, unknown>;
+}
+
+export interface Run {
+  runId: string;
+  status: RunStatus;
+  spec: RunSpecSummary;
+  attempt?: number;
+  workerId?: string | null;
+  error?: string | null;
+  summary?: RunSummary | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  cancelRequested?: boolean;
+}
 
 // Metric metadata type
 export interface MetricMetadata {

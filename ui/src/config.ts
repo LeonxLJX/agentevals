@@ -13,6 +13,7 @@ export const config = {
       metrics: `${API_BASE_URL}/api/metrics`,
       evaluate: `${API_BASE_URL}/api/evaluate`,
       evaluateStream: `${API_BASE_URL}/api/evaluate/stream`,
+      runs: `${API_BASE_URL}/api/runs`,
       validateEvalSet: `${API_BASE_URL}/api/validate/eval-set`,
       streamingCreateEvalSet: `${API_BASE_URL}/api/streaming/create-eval-set`,
       streamingGetTrace: `${API_BASE_URL}/api/streaming/get-trace`,
