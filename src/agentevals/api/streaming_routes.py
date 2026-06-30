@@ -16,7 +16,6 @@ from ..converter import convert_traces
 from ..loader.otlp import OtlpJsonLoader
 from ..runner import RunResult, run_evaluation
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL
-from ..utils.log_enrichment import enrich_spans_with_logs
 from .dependencies import require_trace_manager
 from .models import (
     CreateEvalSetData,
@@ -395,12 +394,6 @@ async def get_trace(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        import tempfile
-
-        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
-
-        unified_trace_id = session.trace_id
-
         has_genai_spans = any(
             span.get("attributes", [])
             and any(
@@ -417,23 +410,20 @@ async def get_trace(
                 request.session_id,
             )
 
-        enriched_spans = enrich_spans_with_logs(session.spans, session.logs)
-
-        for span in enriched_spans:
-            span_copy = span.copy()
-            span_copy["traceId"] = unified_trace_id
-            temp_file.write(json.dumps(span_copy) + "\n")
-
-        temp_file.close()
-
-        with open(temp_file.name) as f:  # noqa: ASYNC230
+        # Reuse the canonical serializer so the trace handed to the UI (and
+        # re-uploaded to /api/evaluate) carries service.name, exactly like the
+        # evaluate-sessions path. Serializing spans here independently would
+        # drop the resource attribute and lose agent identity on the run.
+        trace_file = await manager._save_spans_to_temp_file(session)
+        with open(trace_file) as f:  # noqa: ASYNC230
             trace_content = f.read()
+        num_spans = sum(1 for line in trace_content.splitlines() if line.strip())
 
         return StandardResponse(
             data=GetTraceData(
                 session_id=request.session_id,
                 trace_content=trace_content,
-                num_spans=len(enriched_spans),
+                num_spans=num_spans,
             )
         )
 

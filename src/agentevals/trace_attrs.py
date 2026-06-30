@@ -6,6 +6,9 @@ extraction, streaming, and runner modules.
 Covers OTel GenAI semantic conventions up to v1.40.0.
 """
 
+# OTel resource
+OTEL_SERVICE_NAME = "service.name"
+
 # OTel scope
 OTEL_SCOPE = "otel.scope.name"
 OTEL_SCOPE_VERSION = "otel.scope.version"

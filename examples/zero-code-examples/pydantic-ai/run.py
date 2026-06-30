@@ -54,6 +54,7 @@ def main():
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
     print(f"OTLP endpoint: {endpoint}")
 
+    os.environ.setdefault("OTEL_SERVICE_NAME", "pydantic-ai-agent")
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES",
         "agentevals.eval_set_id=pydantic_ai_eval,agentevals.session_name=pydantic-ai-zero-code",

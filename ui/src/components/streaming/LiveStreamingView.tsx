@@ -441,7 +441,10 @@ export function LiveStreamingView() {
       if (import.meta.env.DEV) {
         console.log('Fetching traces for all sessions');
       }
-      const sessionIds = Array.from(activeSessions.keys());
+      // The golden session defines the eval set, so scoring it against itself
+      // is a trivial pass. Exclude it so only the agents being meaningfully
+      // evaluated against the golden are scored and surfaced.
+      const sessionIds = Array.from(activeSessions.keys()).filter(id => id !== selectedGoldenId);
 
       const traceFiles = await Promise.all(
         sessionIds.map(async (sessionId) => {

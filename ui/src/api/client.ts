@@ -7,6 +7,7 @@ import type {
   ConvertTracesResponse,
   Run,
   RunStatus,
+  RunResultRow,
 } from '../lib/types';
 import { config } from '../config';
 
@@ -217,6 +218,20 @@ export async function listRuns(options?: {
     throw new Error(`Failed to list runs: ${response.statusText}`);
   }
   return unwrap<Run[]>(response);
+}
+
+export async function getRun(runId: string): Promise<Run> {
+  const response = await fetch(`${config.api.endpoints.runs}/${runId}`);
+  if (response.status === 503) throw new StorageUnavailableError();
+  if (!response.ok) throw new Error(`Failed to fetch run: ${response.statusText}`);
+  return unwrap<Run>(response);
+}
+
+export async function getRunResults(runId: string): Promise<RunResultRow[]> {
+  const response = await fetch(`${config.api.endpoints.runs}/${runId}/results`);
+  if (response.status === 503) throw new StorageUnavailableError();
+  if (!response.ok) throw new Error(`Failed to fetch run results: ${response.statusText}`);
+  return unwrap<RunResultRow[]>(response);
 }
 
 export async function listMetrics(): Promise<MetricMetadata[]> {

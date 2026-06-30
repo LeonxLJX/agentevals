@@ -12,7 +12,14 @@ import {
   Legend,
 } from 'chart.js';
 import type { Run } from '../../lib/types';
-import { CHART_COLORS, formatTimestamp, passRate } from './runHistory';
+import {
+  CHART_COLORS,
+  METRIC_PALETTE,
+  agentNamesAcross,
+  formatTimestamp,
+  passRate,
+  runAgents,
+} from './runHistory';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
@@ -20,42 +27,74 @@ interface PassRateTrendChartProps {
   runs: Run[];
 }
 
-export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) => {
-  const points = runs
-    .map(run => ({ run, rate: passRate(run) }))
-    .filter((p): p is { run: Run; rate: number } => p.rate !== null);
+const toPercent = (rate: number) => Math.round(rate * 1000) / 10;
 
-  if (points.length === 0) {
+export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) => {
+  const hasDecided = runs.some(run => passRate(run) !== null);
+  if (!hasDecided) {
     return (
       <div css={cardStyle}>
         <h3>Pass rate over time</h3>
-        <p css={emptyStyle}>No decided (pass/fail) results yet in this eval.</p>
+        <p css={emptyStyle}>No decided (pass/fail) results yet.</p>
       </div>
     );
   }
 
-  const data = {
-    labels: points.map(p => formatTimestamp(p.run.createdAt)),
-    datasets: [
-      {
-        label: 'Pass rate',
-        data: points.map(p => Math.round(p.rate * 1000) / 10),
-        borderColor: CHART_COLORS.passRate,
-        backgroundColor: CHART_COLORS.passRateFill,
-        fill: true,
-        tension: 0.25,
-        pointRadius: 3,
-        pointHoverRadius: 5,
-        borderWidth: 2,
-      },
-    ],
-  };
+  const agentNames = agentNamesAcross(runs);
+  const labels = runs.map(run => formatTimestamp(run.createdAt));
+
+  // One line per agent (service.name) on a shared run-ordered time axis; a run
+  // contributes a point only to the agent(s) it ran, null elsewhere so lines
+  // break across gaps. Runs with no agent identity fall back to one aggregate
+  // line so older runs still chart.
+  const datasets = agentNames.length
+    ? agentNames.map((name, index) => {
+        const color = METRIC_PALETTE[index % METRIC_PALETTE.length];
+        return {
+          label: name,
+          data: runs.map(run => {
+            const rate = passRate(run);
+            return runAgents(run).includes(name) && rate !== null ? toPercent(rate) : null;
+          }),
+          borderColor: color,
+          backgroundColor: color,
+          spanGaps: false,
+          tension: 0.25,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderWidth: 2,
+        };
+      })
+    : [
+        {
+          label: 'Pass rate',
+          data: runs.map(run => {
+            const rate = passRate(run);
+            return rate === null ? null : toPercent(rate);
+          }),
+          borderColor: CHART_COLORS.passRate,
+          backgroundColor: CHART_COLORS.passRateFill,
+          fill: true,
+          spanGaps: false,
+          tension: 0.25,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderWidth: 2,
+        },
+      ];
+
+  const multiAgent = agentNames.length > 0;
 
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
     plugins: {
-      legend: { display: false },
+      legend: {
+        display: multiAgent,
+        position: 'bottom' as const,
+        labels: { color: CHART_COLORS.text, font: { size: 12 }, padding: 14, usePointStyle: true },
+      },
       tooltip: {
         backgroundColor: 'rgba(0, 0, 0, 0.9)',
         titleColor: '#fff',
@@ -63,7 +102,8 @@ export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) 
         padding: 12,
         cornerRadius: 6,
         callbacks: {
-          label: (ctx: { parsed: { y: number } }) => `Pass rate: ${ctx.parsed.y}%`,
+          label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
+            `${ctx.dataset.label}: ${ctx.parsed.y}%`,
         },
       },
     },
@@ -89,7 +129,7 @@ export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) 
     <div css={cardStyle}>
       <h3>Pass rate over time</h3>
       <div css={chartWrapperStyle}>
-        <Line data={data} options={options} />
+        <Line data={{ labels, datasets }} options={options} />
       </div>
     </div>
   );

@@ -28,7 +28,7 @@ from ..extraction import (
 )
 from ..loader.base import Trace
 from ..loader.otlp import OtlpJsonLoader
-from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL
+from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL, OTEL_SERVICE_NAME
 from ..utils.log_enrichment import enrich_spans_with_logs
 from .incremental_processor import IncrementalInvocationExtractor
 from .session import TraceSession
@@ -658,10 +658,21 @@ class StreamingTraceManager:
 
         enriched_spans = enrich_spans_with_logs(session.spans, session.logs, session.session_id)
 
+        # service.name is an OTel resource attribute, so it lives on the session
+        # (lifted from resource attrs at ingest) rather than on individual spans.
+        # The JSONL trace format has no resource envelope, so re-attach it to each
+        # span here; otherwise it's lost on reload and runs can't group by agent.
+        service_name = (session.metadata or {}).get(OTEL_SERVICE_NAME)
+
         with open(temp_file, "w") as f:  # noqa: ASYNC230
             for span in enriched_spans:
                 span_copy = span.copy()
                 span_copy["traceId"] = session.trace_id
+                if service_name:
+                    attrs = list(span_copy.get("attributes", []))
+                    if not any(a.get("key") == OTEL_SERVICE_NAME for a in attrs):
+                        attrs.append({"key": OTEL_SERVICE_NAME, "value": {"stringValue": service_name}})
+                        span_copy["attributes"] = attrs
                 f.write(json.dumps(span_copy) + "\n")
 
         return temp_file

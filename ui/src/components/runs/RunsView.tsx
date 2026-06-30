@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { css } from '@emotion/react';
-import { Select } from 'antd';
+import { Segmented, Select } from 'antd';
 import { RefreshCw, History, AlertCircle } from 'lucide-react';
 import type { Run } from '../../lib/types';
 import { listRuns, StorageUnavailableError } from '../../api/client';
@@ -9,10 +9,12 @@ import {
   metricNamesAcross,
   passRate,
   sortByCreatedAsc,
+  type GroupBy,
 } from './runHistory';
 import { PassRateTrendChart } from './PassRateTrendChart';
 import { PerMetricTrendChart } from './PerMetricTrendChart';
 import { RunsHistoryTable } from './RunsHistoryTable';
+import { RunDetailView } from './RunDetailView';
 
 const ALL_GROUPS = '__all__';
 
@@ -21,7 +23,16 @@ export const RunsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [groupBy, setGroupBy] = useState<GroupBy>('evalSet');
   const [selectedGroup, setSelectedGroup] = useState<string>(ALL_GROUPS);
+  const [detailRunId, setDetailRunId] = useState<string | null>(null);
+
+  // Group keys differ per dimension, so reset the picker to "all" when the
+  // grouping dimension changes to avoid pointing at a now-nonexistent group.
+  const changeGroupBy = (next: GroupBy) => {
+    setGroupBy(next);
+    setSelectedGroup(ALL_GROUPS);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -45,7 +56,7 @@ export const RunsView: React.FC = () => {
     load();
   }, []);
 
-  const groups = useMemo(() => groupRuns(runs), [runs]);
+  const groups = useMemo(() => groupRuns(runs, groupBy), [runs, groupBy]);
 
   const selectedRuns = useMemo(() => {
     if (selectedGroup === ALL_GROUPS) return runs;
@@ -66,6 +77,10 @@ export const RunsView: React.FC = () => {
     };
   }, [selectedRuns, trendRuns]);
 
+  if (detailRunId) {
+    return <RunDetailView runId={detailRunId} onBack={() => setDetailRunId(null)} />;
+  }
+
   return (
     <div css={pageStyle}>
       <header css={headerStyle}>
@@ -74,6 +89,16 @@ export const RunsView: React.FC = () => {
           <h1>Run history</h1>
         </div>
         <div css={controlsStyle}>
+          {runs.length > 0 && (
+            <Segmented<GroupBy>
+              value={groupBy}
+              onChange={changeGroupBy}
+              options={[
+                { value: 'evalSet', label: 'Eval set' },
+                { value: 'agent', label: 'Agent' },
+              ]}
+            />
+          )}
           {groups.length > 0 && (
             <Select
               value={selectedGroup}
@@ -81,7 +106,10 @@ export const RunsView: React.FC = () => {
               css={selectStyle}
               popupMatchSelectWidth={false}
               options={[
-                { value: ALL_GROUPS, label: `All eval sets (${runs.length})` },
+                {
+                  value: ALL_GROUPS,
+                  label: `All ${groupBy === 'agent' ? 'agents' : 'eval sets'} (${runs.length})`,
+                },
                 ...groups.map(g => ({
                   value: g.group.key,
                   label: `${g.group.label} (${g.runs.length})`,
@@ -145,7 +173,7 @@ export const RunsView: React.FC = () => {
             <PerMetricTrendChart runs={trendRuns} />
           </div>
 
-          <RunsHistoryTable runs={selectedRuns} />
+          <RunsHistoryTable runs={selectedRuns} onSelectRun={setDetailRunId} />
         </>
       )}
     </div>

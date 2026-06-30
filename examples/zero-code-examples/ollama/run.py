@@ -112,6 +112,7 @@ def main():
     print(f"Local model: {model}")
 
     os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
+    os.environ.setdefault("OTEL_SERVICE_NAME", "ollama-agent")
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES",
         "agentevals.eval_set_id=langchain_local_ollama_openai_eval,agentevals.session_name=langchain-ollama-openai-zero-code",

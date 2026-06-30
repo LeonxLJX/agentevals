@@ -14,9 +14,10 @@ import {
 
 interface RunsHistoryTableProps {
   runs: Run[];
+  onSelectRun?: (runId: string) => void;
 }
 
-export const RunsHistoryTable: React.FC<RunsHistoryTableProps> = ({ runs }) => {
+export const RunsHistoryTable: React.FC<RunsHistoryTableProps> = ({ runs, onSelectRun }) => {
   const rows = [...runs].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
   const columns: ColumnsType<Run> = [
@@ -43,6 +44,15 @@ export const RunsHistoryTable: React.FC<RunsHistoryTableProps> = ({ runs }) => {
       render: (_: unknown, run: Run) => (
         <span css={evalSetCellStyle}>{evalSetGroup(run).label}</span>
       ),
+    },
+    {
+      title: 'Agent',
+      key: 'agent',
+      render: (_: unknown, run: Run) => {
+        const agents = run.summary?.agents;
+        if (!Array.isArray(agents) || agents.length === 0) return <span css={mutedStyle}>-</span>;
+        return <span css={agentCellStyle}>{agents.join(', ')}</span>;
+      },
     },
     {
       title: 'Traces',
@@ -122,6 +132,10 @@ export const RunsHistoryTable: React.FC<RunsHistoryTableProps> = ({ runs }) => {
         dataSource={rows}
         pagination={{ pageSize: 10, hideOnSinglePage: true }}
         size="small"
+        onRow={run => ({
+          onClick: () => onSelectRun?.(run.runId),
+          style: { cursor: onSelectRun ? 'pointer' : 'default' },
+        })}
       />
     </div>
   );
@@ -146,15 +160,30 @@ const tableStyle = css`
     padding: 12px 16px;
   }
 
-  .ant-table-tbody > tr > td {
-    background: var(--bg-surface);
-    color: var(--text-secondary);
+  .ant-table-tbody > tr {
+    cursor: pointer;
+    transition: all 0.2s ease;
     border-bottom: 1px solid var(--border-subtle);
+    border-left: 4px solid transparent;
+    background: transparent !important;
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+
+    &:hover {
+      border-left-color: var(--accent-primary);
+      outline-color: var(--accent-primary);
+      background: transparent !important;
+    }
+  }
+
+  .ant-table-tbody > tr > td {
     padding: 12px 16px;
+    color: var(--text-secondary);
+    background: transparent !important;
   }
 
   .ant-table-tbody > tr:hover > td {
-    background: var(--bg-elevated);
+    background: transparent !important;
   }
 
   .ant-pagination .ant-pagination-item a,
@@ -197,6 +226,12 @@ const dotStyle = css`
 const evalSetCellStyle = css`
   color: var(--text-primary);
   font-size: 0.8125rem;
+`;
+
+const agentCellStyle = css`
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--accent-primary);
 `;
 
 const countsStyle = css`

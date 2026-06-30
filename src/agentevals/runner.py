@@ -22,7 +22,7 @@ from .config import (
 from .converter import ConversionResult, convert_traces
 from .loader import load_traces
 from .loader.base import Trace
-from .trace_metrics import _calc_percentiles, extract_performance_metrics
+from .trace_metrics import _calc_percentiles, extract_agent_identity, extract_performance_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,8 @@ class TraceResult(BaseModel):
     metric_results: list[MetricResult] = Field(default_factory=list)
     conversion_warnings: list[str] = Field(default_factory=list)
     performance_metrics: dict[str, Any] | None = None
+    service_name: str | None = None
+    agent_name: str | None = None
 
 
 class RunResult(BaseModel):
@@ -111,7 +113,7 @@ async def run_evaluation_from_traces(
 
             trace = trace_map.get(conv_result.trace_id)
 
-            return await _evaluate_trace(
+            trace_result = await _evaluate_trace(
                 conv_result=conv_result,
                 evaluators=config.evaluators,
                 eval_set=eval_set,
@@ -121,6 +123,11 @@ async def run_evaluation_from_traces(
                 trace=trace,
                 performance_metrics=perf_metrics_map.get(conv_result.trace_id),
             )
+            if trace is not None:
+                identity = extract_agent_identity(trace)
+                trace_result.service_name = identity["service_name"]
+                trace_result.agent_name = identity["agent_name"]
+            return trace_result
 
     trace_results = await asyncio.gather(
         *[_evaluate_trace_bounded(idx, conv_result) for idx, conv_result in enumerate(conversion_results)],

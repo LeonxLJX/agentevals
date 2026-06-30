@@ -128,7 +128,11 @@ def summarize_run_result(run_result: RunResult) -> dict[str, Any]:
     """
     counts = {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
     per_metric: dict[str, dict[str, Any]] = {}
+    agents: set[str] = set()
     for tr in run_result.trace_results:
+        identity = tr.service_name or tr.agent_name
+        if identity:
+            agents.add(identity)
         for mr in tr.metric_results:
             key = _status_key(mr)
             counts[key] += 1
@@ -151,6 +155,7 @@ def summarize_run_result(run_result: RunResult) -> dict[str, Any]:
         "trace_count": len(run_result.trace_results),
         "result_counts": counts,
         "per_metric": per_metric,
+        "agents": sorted(agents),
         "errors": list(run_result.errors),
         "performance_metrics": run_result.performance_metrics,
     }

@@ -31,16 +31,35 @@ export function evalSetGroup(run: Run): RunGroup {
   return { key: 'ungrouped', label: 'Ungrouped runs' };
 }
 
+// Agent identity for grouping, derived from summary.agents (service.name, with
+// the backend's agent_name fallback already applied). Cross-framework, so this
+// is the dimension to use when comparing the same agent's runs over time.
+export function agentGroup(run: Run): RunGroup {
+  const agents = run.summary?.agents;
+  if (Array.isArray(agents) && agents.length) {
+    return { key: `agent:${[...agents].sort().join('|')}`, label: agents.join(', ') };
+  }
+  return { key: 'agent:unknown', label: 'Unknown agent' };
+}
+
+export type GroupBy = 'evalSet' | 'agent';
+
+const GROUPERS: Record<GroupBy, (run: Run) => RunGroup> = {
+  evalSet: evalSetGroup,
+  agent: agentGroup,
+};
+
 export interface GroupedRuns {
   group: RunGroup;
   runs: Run[];
 }
 
-// Returns groups sorted by run count desc, so the busiest eval surfaces first.
-export function groupRuns(runs: Run[]): GroupedRuns[] {
+// Returns groups sorted by run count desc, so the busiest group surfaces first.
+export function groupRuns(runs: Run[], groupBy: GroupBy = 'evalSet'): GroupedRuns[] {
+  const grouper = GROUPERS[groupBy];
   const byKey = new Map<string, GroupedRuns>();
   for (const run of runs) {
-    const group = evalSetGroup(run);
+    const group = grouper(run);
     const existing = byKey.get(group.key);
     if (existing) existing.runs.push(run);
     else byKey.set(group.key, { group, runs: [run] });
@@ -89,6 +108,23 @@ export function formatTimestamp(iso: string): string {
 // Oldest first, so trends read left-to-right as time advances.
 export function sortByCreatedAsc(runs: Run[]): Run[] {
   return [...runs].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}
+
+export function runAgents(run: Run): string[] {
+  const agents = run.summary?.agents;
+  return Array.isArray(agents) ? agents : [];
+}
+
+// Union of agent identities (service.name) across runs, ordered by frequency so
+// the most active agent leads the legend. Used to draw one trend line per agent.
+export function agentNamesAcross(runs: Run[]): string[] {
+  const frequency = new Map<string, number>();
+  for (const run of runs) {
+    for (const agent of runAgents(run)) {
+      frequency.set(agent, (frequency.get(agent) ?? 0) + 1);
+    }
+  }
+  return [...frequency.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
 }
 
 // Union of evaluator names seen across a set of runs, ordered by how often they

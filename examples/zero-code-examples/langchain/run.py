@@ -48,6 +48,7 @@ def main():
 
     os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
 
+    os.environ.setdefault("OTEL_SERVICE_NAME", "langchain-agent")
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES",
         "agentevals.eval_set_id=langchain_agent_eval,agentevals.session_name=langchain-zero-code",
