@@ -73,6 +73,7 @@ def main():
 
     agent = Agent(
         "openai:gpt-4o-mini",
+        # "openai:gpt-5.4-mini-2026-03-17",
         instructions="You are a helpful assistant. You can roll dice and check if numbers are prime.",
     )
     agent.tool_plain(roll_die)

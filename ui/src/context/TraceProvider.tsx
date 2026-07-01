@@ -30,6 +30,7 @@ export const TraceProvider: React.FC<TraceProviderProps> = ({ children }) => {
     currentView: 'welcome',
     evaluationOrigin: null,
     selectedTraceId: null,
+    goldenTraceId: null,
     version: null,
     streamingSessions: new Map(),
     annotationQueues: [],
@@ -292,11 +293,15 @@ export const TraceProvider: React.FC<TraceProviderProps> = ({ children }) => {
       selectTrace: (traceId: string | null) =>
         setState((prev) => ({ ...prev, selectedTraceId: traceId })),
 
+      setGoldenTraceId: (traceId: string | null) =>
+        setState((prev) => ({ ...prev, goldenTraceId: traceId })),
+
       clearResults: () =>
         setState((prev) => ({
           ...prev,
           results: [],
           errors: [],
+          goldenTraceId: null,
           currentView: 'upload',
         })),
 
