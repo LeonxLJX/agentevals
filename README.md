@@ -250,7 +250,7 @@ See the [Custom Evaluators guide](docs/custom-evaluators.md) for the full protoc
 agentevals serve            # bundled UI on http://localhost:8001
 ```
 
-Upload traces and eval sets, select evaluators, and view results with interactive span trees. Live-streamed traces appear in the "Local Dev" tab, grouped by session ID. For running from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
+Upload traces and eval sets, select evaluators, and view results with interactive span trees. Live-streamed traces appear in the "Local Dev" tab, grouped by session ID. With the Postgres backend enabled, the "Run History" tab persists every evaluation and lets you group and trend runs by eval set or agent over time; see the [Run History guide](docs/run-history.md). For running from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 Interactive API docs are available at `/docs` (Swagger) and `/redoc` while the server is running. The OTLP receiver on port 4318 serves its own docs at `http://localhost:4318/docs`.
 
@@ -288,11 +288,12 @@ See the [Kubernetes example](examples/kubernetes/README.md) for an end-to-end wa
 
 #### Postgres backend (`/api/runs`)
 
-> **Preview.** Persistent run history backed by Postgres is under active
-> development. The `storage.*` and `database.postgres.*` chart values, the
-> `/api/runs` HTTP surface, and the database schema may change incompatibly
-> in upcoming releases. Operators evaluating this feature should plan to
-> recreate the agentevals schema when upgrading between minor versions.
+> **Preview.** Persisting evaluations and exploring them in the UI works end
+> to end (see the [Run History guide](docs/run-history.md)), but the storage
+> layer is still stabilizing. The `storage.*` and `database.postgres.*` chart
+> values, the `/api/runs` HTTP surface, and the database schema may change
+> incompatibly in upcoming releases. Operators evaluating this feature should
+> plan to recreate the agentevals schema when upgrading between minor versions.
 > Default in-memory mode is unaffected.
 
 By default the chart deploys agentevals with an in-memory backend; runs and results are not persisted. To enable the async `POST /api/runs` pipeline with durable Postgres-backed state:
@@ -310,6 +311,8 @@ helm install agentevals oci://ghcr.io/agentevals-dev/agentevals/helm/agentevals 
 ```
 
 When `storage.backend=postgres` the app applies any pending schema migrations on startup (advisory-lock protected, safe across replicas) and starts an in-process worker that processes the run queue. Without `storage.backend=postgres` the `/api/runs` endpoints return 503 with a hint pointing at the env var.
+
+Persisted runs power the **Run History** view in the UI, where you can group and trend evaluations by eval set or agent and drill into per-run detail. See the [Run History guide](docs/run-history.md) for the full feature walkthrough and local-dev setup.
 
 ## MCP Server
 
@@ -359,6 +362,7 @@ Working examples are in the [`examples/`](examples/) directory:
 | [Eval Set Format](docs/eval-set-format.md) | Schema, field reference, and examples for golden eval set JSON files |
 | [Custom Evaluators](docs/custom-evaluators.md) | Write your own scoring logic in Python, JavaScript, or any language |
 | [Live Streaming](docs/streaming.md) | Real-time trace streaming, dev server setup, and session management |
+| [Run History](docs/run-history.md) | Persisting evaluations to Postgres and exploring them over time in the UI |
 | [OpenTelemetry Compatibility](docs/otel-compatibility.md) | Supported OTel conventions, message delivery mechanisms, and OTLP receiver |
 
 ## Development
