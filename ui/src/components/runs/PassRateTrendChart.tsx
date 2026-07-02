@@ -11,6 +11,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import type { ChartOptions, TooltipItem } from 'chart.js';
 import type { Run } from '../../lib/types';
 import {
   CHART_COLORS,
@@ -85,7 +86,7 @@ export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) 
 
   const multiAgent = agentNames.length > 0;
 
-  const options = {
+  const options: ChartOptions<'line'> = {
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index' as const, intersect: false },
@@ -102,8 +103,7 @@ export const PassRateTrendChart: React.FC<PassRateTrendChartProps> = ({ runs }) 
         padding: 12,
         cornerRadius: 6,
         callbacks: {
-          label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
-            `${ctx.dataset.label}: ${ctx.parsed.y}%`,
+          label: (ctx: TooltipItem<'line'>) => `${ctx.dataset.label}: ${ctx.parsed.y}%`,
         },
       },
     },
