@@ -7,16 +7,15 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..config import BuiltinMetricDef, EvalRunConfig, EvaluatorDef
+from ..config import BuiltinMetricDef, EvalParams, EvalRunConfig, EvaluatorDef
 from ..converter import convert_traces
 from ..loader.otlp import OtlpJsonLoader
-from ..runner import run_evaluation
+from ..runner import RunResult, run_evaluation
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL
-from ..utils.log_enrichment import enrich_spans_with_logs
 from .dependencies import require_trace_manager
 from .models import (
     CreateEvalSetData,
@@ -167,9 +166,47 @@ async def create_eval_set_from_session(
     return await _do_create_eval_set(request, manager)
 
 
+async def _persist_sessions_run(
+    http_request: Request,
+    *,
+    evaluators: list[EvaluatorDef],
+    eval_set_dict: dict,
+    session_ids: list[str],
+    run_results: list[RunResult],
+    session_errors: list[str],
+) -> None:
+    """Best-effort: persist a UI-driven session evaluation as a single Run row
+    (plus Result rows) when ``app.state.run_service`` is configured (postgres
+    backend), mirroring the offline ``/api/evaluate`` persistence.
+
+    Every evaluated session's traces are aggregated into one run so the run
+    history counts one evaluation per "Evaluate" click, the same way one
+    offline upload of N traces produces one run. No-op (and never raises) on
+    the memory backend or on persistence failure, so the live eval results are
+    always returned to the caller regardless."""
+    service = getattr(http_request.app.state, "run_service", None)
+    if service is None:
+        return
+    trace_results = [tr for rr in run_results for tr in rr.trace_results]
+    if not trace_results:
+        return
+    combined = RunResult(trace_results=trace_results, errors=session_errors)
+    try:
+        await service.record_eval_run(
+            params=EvalParams(evaluators=evaluators),
+            eval_set_dict=eval_set_dict,
+            trace_format="otlp-json",
+            upload_filenames=session_ids,
+            run_result=combined,
+        )
+    except Exception:
+        logger.exception("failed to persist evaluate-sessions run; results still returned to caller")
+
+
 @streaming_router.post("/evaluate-sessions", response_model=StandardResponse[EvaluateSessionsData])
 async def evaluate_sessions(
     request: EvaluateSessionsRequest,
+    http_request: Request,
     manager: StreamingTraceManager = Depends(require_trace_manager),
 ):
     """Evaluate all sessions against a golden session converted to EvalSet."""
@@ -200,7 +237,7 @@ async def evaluate_sessions(
 
         sem = asyncio.Semaphore(5)
 
-        async def eval_one_session(session_id: str, session) -> SessionEvalResult:
+        async def eval_one_session(session_id: str, session) -> tuple[SessionEvalResult, RunResult | None]:
             async with sem:
                 try:
                     trace_file = await manager._save_spans_to_temp_file(session)
@@ -216,33 +253,46 @@ async def evaluate_sessions(
 
                     if eval_result.trace_results:
                         trace_result = eval_result.trace_results[0]
-                        return SessionEvalResult(
-                            session_id=session_id,
-                            trace_id=trace_result.trace_id,
-                            num_invocations=trace_result.num_invocations,
-                            metric_results=[
-                                {
-                                    "metricName": mr.metric_name,
-                                    "score": mr.score,
-                                    "evalStatus": mr.eval_status,
-                                    "error": mr.error,
-                                    "perInvocationScores": mr.per_invocation_scores,
-                                    "details": mr.details,
-                                }
-                                for mr in trace_result.metric_results
-                            ],
+                        return (
+                            SessionEvalResult(
+                                session_id=session_id,
+                                trace_id=trace_result.trace_id,
+                                num_invocations=trace_result.num_invocations,
+                                metric_results=[
+                                    {
+                                        "metricName": mr.metric_name,
+                                        "score": mr.score,
+                                        "evalStatus": mr.eval_status,
+                                        "error": mr.error,
+                                        "perInvocationScores": mr.per_invocation_scores,
+                                        "details": mr.details,
+                                    }
+                                    for mr in trace_result.metric_results
+                                ],
+                            ),
+                            eval_result,
                         )
                     else:
                         logger.warning("No trace results for session %s", session_id)
-                        return SessionEvalResult(session_id=session_id, error="No trace results")
+                        return SessionEvalResult(session_id=session_id, error="No trace results"), None
 
                 except Exception as exc:
                     logger.error(f"Failed to evaluate session {session_id}: {exc}", exc_info=True)
-                    return SessionEvalResult(session_id=session_id, error=str(exc))
+                    return SessionEvalResult(session_id=session_id, error=str(exc)), None
 
-        results = await asyncio.gather(*[eval_one_session(sid, sess) for sid, sess in sessions_to_evaluate])
+        evaluated = await asyncio.gather(*[eval_one_session(sid, sess) for sid, sess in sessions_to_evaluate])
+        results = [session_result for session_result, _ in evaluated]
 
         logger.info("Evaluation complete. Total results: %d", len(results))
+
+        await _persist_sessions_run(
+            http_request,
+            evaluators=request.evaluators,
+            eval_set_dict=eval_set_response.data.eval_set,
+            session_ids=[sid for sid, _ in sessions_to_evaluate],
+            run_results=[run_result for _, run_result in evaluated if run_result is not None],
+            session_errors=[f"{r.session_id}: {r.error}" for r in results if r.error],
+        )
 
         return StandardResponse(
             data=EvaluateSessionsData(
@@ -344,12 +394,6 @@ async def get_trace(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        import tempfile
-
-        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
-
-        unified_trace_id = session.trace_id
-
         has_genai_spans = any(
             span.get("attributes", [])
             and any(
@@ -366,23 +410,20 @@ async def get_trace(
                 request.session_id,
             )
 
-        enriched_spans = enrich_spans_with_logs(session.spans, session.logs)
-
-        for span in enriched_spans:
-            span_copy = span.copy()
-            span_copy["traceId"] = unified_trace_id
-            temp_file.write(json.dumps(span_copy) + "\n")
-
-        temp_file.close()
-
-        with open(temp_file.name) as f:  # noqa: ASYNC230
+        # Reuse the canonical serializer so the trace handed to the UI (and
+        # re-uploaded to /api/evaluate) carries service.name, exactly like the
+        # evaluate-sessions path. Serializing spans here independently would
+        # drop the resource attribute and lose agent identity on the run.
+        trace_file = await manager._save_spans_to_temp_file(session)
+        with open(trace_file) as f:  # noqa: ASYNC230
             trace_content = f.read()
+        num_spans = sum(1 for line in trace_content.splitlines() if line.strip())
 
         return StandardResponse(
             data=GetTraceData(
                 session_id=request.session_id,
                 trace_content=trace_content,
-                num_spans=len(enriched_spans),
+                num_spans=num_spans,
             )
         )
 

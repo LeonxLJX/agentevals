@@ -233,7 +233,100 @@ export interface EvalSet {
 }
 
 // View types
-export type ViewType = 'welcome' | 'upload' | 'dashboard' | 'inspector' | 'comparison' | 'builder' | 'streaming' | 'annotation-queue';
+export type ViewType = 'welcome' | 'upload' | 'dashboard' | 'inspector' | 'comparison' | 'builder' | 'streaming' | 'annotation-queue' | 'runs';
+
+// Persisted run history (durable storage, GET /api/runs)
+export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface ResultCounts {
+  passed: number;
+  failed: number;
+  errored: number;
+  skipped: number;
+}
+
+// One entry per evaluator in summary.per_metric. avg_score is null when no
+// invocation of that evaluator produced a numeric score (e.g. it only errored).
+export interface PerMetricSummary extends ResultCounts {
+  avg_score: number | null;
+}
+
+// summary is a free-form dict on the backend, so its keys stay snake_case on
+// the wire (the camelCase alias generator only renames declared model fields).
+export interface RunSummary {
+  trace_count: number;
+  result_counts: ResultCounts;
+  per_metric?: Record<string, PerMetricSummary>;
+  agents?: string[];
+  errors?: string[];
+  performance_metrics?: { models?: string[] } & Record<string, unknown>;
+}
+
+// spec.evalSet/evalConfig are stored as raw dicts, so their inner keys keep
+// the original snake_case (e.g. ADK eval_set_id) rather than being camelCased.
+export interface RunEvaluatorConfig {
+  name?: string;
+  type?: string;
+  threshold?: number;
+  judge_model?: string;
+  trajectory_match_type?: string;
+}
+
+export interface RunSpecSummary {
+  approach?: string;
+  evalSet?: { eval_set_id?: string; name?: string; eval_cases?: unknown[] } | null;
+  evalConfig?: { evaluators?: RunEvaluatorConfig[] } & Record<string, unknown>;
+  target?: { kind?: string; trace_count?: number; trace_files?: string[] } & Record<string, unknown>;
+}
+
+// One persisted Result row (GET /api/runs/{id}/results). Top-level fields are
+// camelCased by the API; the free-form `details` keeps snake_case inner keys.
+export type ResultStatus2 = 'passed' | 'failed' | 'errored' | 'skipped';
+
+export interface PersistedComparison {
+  invocation_id?: string | null;
+  matched?: boolean;
+  expected?: ToolCallComparison[];
+  actual?: ToolCallComparison[];
+}
+
+export interface ResultDetails {
+  comparisons?: PersistedComparison[];
+  [key: string]: unknown;
+}
+
+export interface RunResultRow {
+  resultId: string;
+  runId: string;
+  evalSetItemId: string;
+  evalSetItemName: string;
+  evaluatorName: string;
+  evaluatorType: string;
+  status: ResultStatus2;
+  score: number | null;
+  perInvocationScores: (number | null)[];
+  traceId?: string | null;
+  spanId?: string | null;
+  details?: ResultDetails;
+  errorText?: string | null;
+  tokensUsed?: Record<string, unknown> | null;
+  latencyMs?: number | null;
+  createdAt: string;
+}
+
+export interface Run {
+  runId: string;
+  status: RunStatus;
+  spec: RunSpecSummary;
+  attempt?: number;
+  workerId?: string | null;
+  error?: string | null;
+  summary?: RunSummary | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  cancelRequested?: boolean;
+}
 
 // Metric metadata type
 export interface MetricMetadata {

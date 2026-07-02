@@ -129,6 +129,17 @@ export const DashboardView: React.FC = () => {
     setHoveredTraceId(traceId);
   };
 
+  // The golden/reference trace is plotted in the performance charts (as a
+  // baseline) but excluded from pass/fail scoring - summary stats and the
+  // results table. Charts get the full set plus the golden id for labeling.
+  const goldenTraceId = state.goldenTraceId;
+  const scoredResults = goldenTraceId
+    ? state.results.filter((r) => r.traceId !== goldenTraceId)
+    : state.results;
+  const scoredRows = Array.from(state.tableRows.values()).filter(
+    (r) => !goldenTraceId || r.traceId !== goldenTraceId,
+  );
+
   return (
     <div css={dashboardStyle}>
       <div className="header">
@@ -178,9 +189,13 @@ export const DashboardView: React.FC = () => {
 
       {state.tableRows.size > 0 && (
         <>
-          {state.results.length > 0 && <SummaryStats traceResults={state.results} />}
+          {scoredResults.length > 0 && <SummaryStats traceResults={scoredResults} />}
 
-          <PerformanceCharts traceResults={state.results} hoveredTraceId={hoveredTraceId} />
+          <PerformanceCharts
+            traceResults={state.results}
+            hoveredTraceId={hoveredTraceId}
+            goldenTraceId={goldenTraceId}
+          />
 
           {state.isEvaluating && (
             <div className="progress-banner">
@@ -192,7 +207,7 @@ export const DashboardView: React.FC = () => {
           )}
 
           <TraceTable
-            rows={Array.from(state.tableRows.values())}
+            rows={scoredRows}
             selectedEvaluatorNames={state.selectedEvaluatorNames}
             threshold={state.threshold}
             onRowClick={handleTraceClick}

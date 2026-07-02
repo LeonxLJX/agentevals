@@ -44,6 +44,7 @@ async def main():
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
     print(f"OTLP endpoint: {endpoint}")
 
+    os.environ.setdefault("OTEL_SERVICE_NAME", "adk-agent")
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES",
         "agentevals.eval_set_id=dice_agent_eval,agentevals.session_name=adk-zero-code",

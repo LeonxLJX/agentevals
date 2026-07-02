@@ -24,22 +24,30 @@ ChartJS.register(
 interface PerformanceChartsProps {
   traceResults: TraceResult[];
   hoveredTraceId?: string | null;
+  goldenTraceId?: string | null;
 }
 
-export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({ traceResults, hoveredTraceId }) => {
+export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({ traceResults, hoveredTraceId, goldenTraceId }) => {
   const tracesWithPerf = traceResults.filter(tr => tr.performanceMetrics);
 
   if (tracesWithPerf.length === 0) {
     return null;
   }
 
+  const isGolden = (tr: TraceResult) => goldenTraceId != null && tr.traceId === goldenTraceId;
+
   const sortedTraces = [...tracesWithPerf].sort((a, b) => {
+    // Golden reference first, so it reads as the baseline the runs compare to.
+    if (isGolden(a) !== isGolden(b)) return isGolden(a) ? -1 : 1;
     const aSession = a.sessionId || a.traceId;
     const bSession = b.sessionId || b.traceId;
     return aSession.localeCompare(bSession);
   });
 
-  const labels = sortedTraces.map(tr => tr.sessionId || tr.traceId.substring(0, 12));
+  const labels = sortedTraces.map(tr => {
+    const base = tr.sessionId || tr.traceId.substring(0, 12);
+    return isGolden(tr) ? `${base} (reference)` : base;
+  });
 
   const hoveredIndex = hoveredTraceId
     ? sortedTraces.findIndex(tr => tr.traceId === hoveredTraceId)

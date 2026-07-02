@@ -441,7 +441,12 @@ export function LiveStreamingView() {
       if (import.meta.env.DEV) {
         console.log('Fetching traces for all sessions');
       }
+      // Include the golden alongside the other sessions so its performance is
+      // plotted as a reference in the charts. It's tagged via goldenTraceId so
+      // the results view keeps it out of pass/fail scoring (scoring it against
+      // the eval set derived from itself is a trivial pass).
       const sessionIds = Array.from(activeSessions.keys());
+      const goldenTraceId = activeSessions.get(selectedGoldenId)?.traceId ?? null;
 
       const traceFiles = await Promise.all(
         sessionIds.map(async (sessionId) => {
@@ -480,6 +485,7 @@ export function LiveStreamingView() {
       actions.setEvaluationOrigin('streaming');
       actions.setTraceFiles(validTraceFiles);
       actions.setEvalSet(evalSetFile);
+      actions.setGoldenTraceId(goldenTraceId);
       actions.setCurrentView('upload');
 
     } catch (error) {

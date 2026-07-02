@@ -3,8 +3,19 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { css } from '@emotion/react';
 import { Clock, User, Cpu, MessageSquare, CheckCircle2, XCircle, Loader2, ChevronRight, ChevronDown } from 'lucide-react';
-import type { TraceTableRow, Annotation } from '../../lib/types';
+import type { TraceTableRow, Annotation, TrajectoryComparison } from '../../lib/types';
 import { formatTimestamp } from '../../lib/utils';
+import { TrajectoryComparisonDetails } from '../inspector/TrajectoryComparisonDetails';
+
+const TRAJECTORY_METRIC = 'tool_trajectory_avg_score';
+
+function getTrajectoryComparisons(record: TraceTableRow): TrajectoryComparison[] {
+  return record.metricResults.get(TRAJECTORY_METRIC)?.details?.comparisons ?? [];
+}
+
+function hasTrajectoryMismatch(record: TraceTableRow): boolean {
+  return getTrajectoryComparisons(record).some(c => !c.matched);
+}
 
 interface TraceTableProps {
   rows: TraceTableRow[];
@@ -119,6 +130,19 @@ const tableStyle = css`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .diff-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--status-failure);
+    background: rgba(255, 87, 87, 0.12);
+    border: 1px solid rgba(255, 87, 87, 0.3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    cursor: pointer;
   }
 
   @keyframes spin {
@@ -238,27 +262,35 @@ export const TraceTable: React.FC<TraceTableProps> = ({
 
         const numTurns = record.invocations?.length || record.numInvocations || 1;
         const isExpanded = expandedRowKeys.includes(record.traceId);
+        const mismatch = hasTrajectoryMismatch(record);
+        const expandable = numTurns > 1 || mismatch;
 
-        if (numTurns > 1) {
+        const toggle = (e: React.MouseEvent) => {
+          e.stopPropagation();
+          setExpandedRowKeys(
+            isExpanded
+              ? expandedRowKeys.filter(k => k !== record.traceId)
+              : [...expandedRowKeys, record.traceId],
+          );
+        };
+
+        if (expandable) {
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isExpanded) {
-                    setExpandedRowKeys(expandedRowKeys.filter(k => k !== record.traceId));
-                  } else {
-                    setExpandedRowKeys([...expandedRowKeys, record.traceId]);
-                  }
-                }}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-              >
+              <span onClick={toggle} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </span>
               <MessageSquare size={14} />
-              <span className="preview-text" style={{ fontWeight: 600 }}>
-                {numTurns} turns
-              </span>
+              {numTurns > 1 ? (
+                <span className="preview-text" style={{ fontWeight: 600 }}>{numTurns} turns</span>
+              ) : (
+                <span className="preview-text">{record.userInputPreview}</span>
+              )}
+              {mismatch && (
+                <span className="diff-badge" onClick={toggle} title="Trajectory differs from eval set">
+                  diff
+                </span>
+              )}
             </div>
           );
         }
@@ -385,7 +417,9 @@ export const TraceTable: React.FC<TraceTableProps> = ({
 
   const expandedRowRender = (record: TraceTableRow) => {
     const invocations = record.invocations || [];
-    if (invocations.length === 0) return null;
+    const comparisons = getTrajectoryComparisons(record);
+    const showDiff = comparisons.some(c => !c.matched);
+    if (invocations.length === 0 && !showDiff) return null;
 
     return (
       <div style={{
@@ -502,6 +536,11 @@ export const TraceTable: React.FC<TraceTableProps> = ({
             </div>
           );
         })}
+        {showDiff && (
+          <div style={{ marginTop: invocations.length > 0 ? '16px' : '0' }}>
+            <TrajectoryComparisonDetails comparisons={comparisons} />
+          </div>
+        )}
       </div>
     );
   };
@@ -524,7 +563,7 @@ export const TraceTable: React.FC<TraceTableProps> = ({
             }
           },
           expandedRowRender,
-          rowExpandable: (record) => (record.invocations?.length || 0) > 1,
+          rowExpandable: (record) => (record.invocations?.length || 0) > 1 || hasTrajectoryMismatch(record),
           expandIcon: () => null, // Hide default expand icon since we show it in the Conversation column
         }}
         onRow={(record) => ({

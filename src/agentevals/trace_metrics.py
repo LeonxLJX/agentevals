@@ -16,7 +16,39 @@ from .trace_attrs import (
     OTEL_GENAI_AGENT_NAME,
     OTEL_GENAI_REQUEST_MODEL,
     OTEL_GENAI_TOOL_NAME,
+    OTEL_SERVICE_NAME,
 )
+
+
+def _first_service_name(trace) -> str | None:
+    """The OTel ``service.name`` resource attribute, merged onto every span at
+    ingest. Cross-framework, so it's the stable identifier for grouping runs by
+    agent regardless of instrumentation."""
+    for span in trace.all_spans:
+        value = span.get_tag(OTEL_SERVICE_NAME)
+        if value:
+            return value
+    return None
+
+
+def extract_agent_identity(trace, extractor=None) -> dict[str, str | None]:
+    """Best-effort agent identity for grouping runs. Prefers ``service.name``;
+    falls back only to a real ``gen_ai.agent.name``.
+
+    Deliberately does NOT fall back to the root span's operation name: for
+    OTel GenAI traces that's the LLM call name (e.g. "chat gpt-4o-mini"), which
+    is a model, not an agent, and would mislabel agent groups in the dashboard.
+    """
+    agent_name = None
+    try:
+        if extractor is None:
+            extractor = get_extractor(trace)
+        invocation_spans = extractor.find_invocation_spans(trace)
+        if invocation_spans:
+            agent_name = invocation_spans[0].get_tag(OTEL_GENAI_AGENT_NAME)
+    except Exception:
+        agent_name = None
+    return {"service_name": _first_service_name(trace), "agent_name": agent_name}
 
 
 def _truncate(text: str, max_length: int = 200) -> str:
@@ -149,6 +181,7 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "agent_name": None,
         "agent_id": None,
+        "service_name": _first_service_name(trace),
         "model": None,
         "response_model": None,
         "provider": None,

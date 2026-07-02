@@ -99,27 +99,63 @@ def build_results(run_id: UUID, params: EvalParams, run_result: RunResult) -> li
     return out
 
 
+def _status_key(mr: MetricResult) -> str:
+    """Map a :class:`MetricResult` onto a :class:`ResultStatus` string,
+    matching :func:`result_from_metric_result` so the summary counts and the
+    persisted ``result`` rows never disagree."""
+    if mr.error:
+        return "errored"
+    status = (mr.eval_status or "").upper()
+    if status == "PASSED":
+        return "passed"
+    if status == "FAILED":
+        return "failed"
+    return "skipped"
+
+
 def summarize_run_result(run_result: RunResult) -> dict[str, Any]:
     """Summary blob persisted alongside the run row.
 
     Counts mirror :class:`agentevals.storage.models.ResultStatus` values so a
     caller polling ``GET /api/runs/{id}`` can compute pass/fail rates without
     fetching the full result list.
+
+    ``per_metric`` aggregates the same statuses by ``evaluator_name`` plus a
+    mean ``score``, so the run-history dashboard can chart per-metric trends
+    across runs from the list response alone, without an N+1 over
+    ``/api/runs/{id}/results``. ``avg_score`` is ``None`` when no invocation of
+    that evaluator produced a numeric score (e.g. it only errored).
     """
     counts = {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
+    per_metric: dict[str, dict[str, Any]] = {}
+    agents: set[str] = set()
     for tr in run_result.trace_results:
+        identity = tr.service_name or tr.agent_name
+        if identity:
+            agents.add(identity)
         for mr in tr.metric_results:
-            if mr.error:
-                counts["errored"] += 1
-            elif (mr.eval_status or "").upper() == "PASSED":
-                counts["passed"] += 1
-            elif (mr.eval_status or "").upper() == "FAILED":
-                counts["failed"] += 1
-            else:
-                counts["skipped"] += 1
+            key = _status_key(mr)
+            counts[key] += 1
+
+            metric = per_metric.setdefault(
+                mr.metric_name,
+                {"passed": 0, "failed": 0, "errored": 0, "skipped": 0, "_score_sum": 0.0, "_score_count": 0},
+            )
+            metric[key] += 1
+            if mr.score is not None:
+                metric["_score_sum"] += mr.score
+                metric["_score_count"] += 1
+
+    for metric in per_metric.values():
+        score_count = metric.pop("_score_count")
+        score_sum = metric.pop("_score_sum")
+        metric["avg_score"] = (score_sum / score_count) if score_count else None
+
     return {
         "trace_count": len(run_result.trace_results),
         "result_counts": counts,
+        "per_metric": per_metric,
+        "agents": sorted(agents),
         "errors": list(run_result.errors),
         "performance_metrics": run_result.performance_metrics,
     }

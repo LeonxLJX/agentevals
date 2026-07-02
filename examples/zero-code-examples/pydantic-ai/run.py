@@ -54,6 +54,7 @@ def main():
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
     print(f"OTLP endpoint: {endpoint}")
 
+    os.environ.setdefault("OTEL_SERVICE_NAME", "pydantic-ai-agent")
     os.environ.setdefault(
         "OTEL_RESOURCE_ATTRIBUTES",
         "agentevals.eval_set_id=pydantic_ai_eval,agentevals.session_name=pydantic-ai-zero-code",
@@ -72,6 +73,7 @@ def main():
 
     agent = Agent(
         "openai:gpt-4o-mini",
+        # "openai:gpt-5.4-mini-2026-03-17",
         instructions="You are a helpful assistant. You can roll dice and check if numbers are prime.",
     )
     agent.tool_plain(roll_die)

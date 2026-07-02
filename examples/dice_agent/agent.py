@@ -56,7 +56,7 @@ def check_prime(nums: list[int]) -> dict:
 dice_agent = Agent(
     name="dice_agent",
     # model="gemini-2.5-flash",
-    model="gemini-2.5-flash-lite",
+    model="gemini-3-flash-preview",
     instruction="""You are a helpful assistant that can roll dice and check if numbers are prime.
 
 When a user asks you to roll a die, use the roll_die tool with the appropriate number of sides.

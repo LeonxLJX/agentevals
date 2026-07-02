@@ -32,6 +32,9 @@ export interface TraceState {
   currentView: ViewType;
   evaluationOrigin: ViewType | null;
   selectedTraceId: string | null;
+  // Trace id of the golden/reference session in the current results, if any.
+  // Plotted in the performance charts but excluded from pass/fail scoring.
+  goldenTraceId: string | null;
   version: string | null;
 
   // Streaming state
@@ -63,6 +66,7 @@ export interface TraceContextType {
     removeSession: (sessionId: string) => void;
     clearAllSessions: () => void;
     selectTrace: (traceId: string | null) => void;
+    setGoldenTraceId: (traceId: string | null) => void;
     clearResults: () => void;
 
     // Annotation queue actions
