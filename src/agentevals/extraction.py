@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Protocol, TypedDict, TypeVar
 
 from .loader.base import Span, Trace
@@ -22,6 +23,7 @@ from .trace_attrs import (
     ADK_SCOPE_VALUE,
     ADK_TOOL_CALL_ARGS,
     ADK_TOOL_RESPONSE,
+    GENAI_ATTRIBUTE_ALIASES,
     OTEL_ERROR_TYPE,
     OTEL_GENAI_INPUT_MESSAGES,
     OTEL_GENAI_OP,
@@ -44,6 +46,7 @@ from .trace_attrs import (
     OTEL_GENAI_USAGE_CACHE_READ_TOKENS,
     OTEL_GENAI_USAGE_INPUT_TOKENS,
     OTEL_GENAI_USAGE_OUTPUT_TOKENS,
+    OTEL_SCHEMA_URL,
     OTEL_SCOPE,
 )
 from .utils.genai_messages import (
@@ -57,6 +60,61 @@ from .utils.genai_messages import (
 logger = logging.getLogger(__name__)
 
 FORMAT_DETECTION_SPAN_LIMIT = 10
+
+# ---------------------------------------------------------------------------
+# Alias-aware attribute resolution
+# ---------------------------------------------------------------------------
+
+# Matches a semver-like segment (e.g. "1.37.0") anywhere in a schema URL such
+# as "https://opentelemetry.io/schemas/1.37.0". Deliberately permissive since
+# schema_url values are free-form OTel-defined strings, not something we
+# control the shape of.
+_SEMCONV_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
+
+
+def resolve_attr(attrs: dict[str, Any], canonical_key: str) -> Any | None:
+    """Look up *canonical_key* in *attrs*, falling back to older aliased names.
+
+    Resolution order:
+    1. The canonical (current/newest) key, if present with a truthy value.
+    2. Each alias in ``GENAI_ATTRIBUTE_ALIASES[canonical_key]``, in order,
+       first truthy value wins.
+    3. ``None`` if neither the canonical key nor any alias is present.
+
+    The canonical value always takes precedence over aliases, even if both
+    are present on the same span. This resolves only against the flat attrs
+    dict at read time - it never mutates or rewrites stored/transmitted
+    attributes.
+    """
+    value = attrs.get(canonical_key)
+    if value:
+        return value
+
+    for alias in GENAI_ATTRIBUTE_ALIASES.get(canonical_key, []):
+        alias_value = attrs.get(alias)
+        if alias_value:
+            return alias_value
+
+    return None
+
+
+def resolve_semconv_version(schema_url: str | None) -> str:
+    """Resolve a schema_url into a semconv version string.
+
+    Extracts a version-like segment (e.g. "1.37.0") from URLs such as
+    "https://opentelemetry.io/schemas/1.37.0". Degrades gracefully to
+    "unknown" for missing, empty, or malformed input - this function never
+    raises.
+    """
+    if not schema_url or not isinstance(schema_url, str):
+        return "unknown"
+
+    match = _SEMCONV_VERSION_RE.search(schema_url)
+    if match:
+        return match.group(1)
+
+    return "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Pure extraction functions (operate on flat attribute dicts)
@@ -189,18 +247,28 @@ class ExtendedModelInfo(TypedDict):
     cache_creation_tokens: int
     cache_read_tokens: int
     error_type: str | None
+    semconv_version: str
 
 
 def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedModelInfo:
     """Extract extended model and provider metadata from span attributes.
 
-    Uses gen_ai.system as fallback for provider when gen_ai.provider.name is
-    absent (backward compat with pre-v1.37.0 instrumentors).
+    Uses the alias-resolving lookup for attributes with known historical
+    renames (e.g. provider falls back to gen_ai.system when
+    gen_ai.provider.name - the canonical, current name - is absent, for
+    backward compat with pre-v1.37.0 instrumentors).
+
+    ``semconv_version`` is resolved from the scope's ``schema_url`` (captured
+    at ingest as the ``otel.schema_url`` attribute) and degrades to
+    "unknown" when absent or malformed. This is purely informational
+    metadata about which semconv version emitted the span - it is never used
+    to detect whether a span is GenAI (that remains the sole responsibility
+    of the existing gen_ai.* presence checks).
     """
     return {
         "request_model": attrs.get(OTEL_GENAI_REQUEST_MODEL),
         "response_model": attrs.get(OTEL_GENAI_RESPONSE_MODEL),
-        "provider": attrs.get(OTEL_GENAI_PROVIDER_NAME) or attrs.get(OTEL_GENAI_SYSTEM),
+        "provider": resolve_attr(attrs, OTEL_GENAI_PROVIDER_NAME),
         "finish_reasons": _parse_finish_reasons(attrs.get(OTEL_GENAI_RESPONSE_FINISH_REASONS)),
         "response_id": attrs.get(OTEL_GENAI_RESPONSE_ID),
         "temperature": _safe_cast(attrs.get(OTEL_GENAI_REQUEST_TEMPERATURE), float),
@@ -208,6 +276,7 @@ def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedMod
         "cache_creation_tokens": _safe_cast(attrs.get(OTEL_GENAI_USAGE_CACHE_CREATION_TOKENS), int, 0),
         "cache_read_tokens": _safe_cast(attrs.get(OTEL_GENAI_USAGE_CACHE_READ_TOKENS), int, 0),
         "error_type": attrs.get(OTEL_ERROR_TYPE),
+        "semconv_version": resolve_semconv_version(attrs.get(OTEL_SCHEMA_URL)),
     }
 
 

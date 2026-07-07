@@ -8,6 +8,7 @@ import logging
 from ..trace_attrs import (
     OTEL_GENAI_INPUT_MESSAGES,
     OTEL_GENAI_OUTPUT_MESSAGES,
+    OTEL_SCHEMA_URL,
     OTEL_SCOPE,
     OTEL_SCOPE_VERSION,
 )
@@ -98,16 +99,17 @@ class OtlpJsonLoader(TraceLoader):
                 scope = scope_span.get("scope") or scope_span.get("instrumentationLibrary") or {}
                 scope_name = scope.get("name", "")
                 scope_version = scope.get("version", "")
+                schema_url = scope_span.get("schemaUrl", "")
 
                 for span_data in scope_span.get("spans", []):
-                    span = self._parse_span(span_data, resource_attrs, scope_name, scope_version)
+                    span = self._parse_span(span_data, resource_attrs, scope_name, scope_version, schema_url)
                     all_spans.append(span)
 
         return self._build_traces(all_spans)
 
     def _parse_otlp_spans(self, spans_data: list[dict]) -> list[Trace]:
         """Parse flat list of OTLP spans (JSONL format for streaming)."""
-        all_spans = [self._parse_span(span_data, {}, "", "") for span_data in spans_data]
+        all_spans = [self._parse_span(span_data, {}, "", "", "") for span_data in spans_data]
         return self._build_traces(all_spans)
 
     _GENAI_EVENT_KEYS = {OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_OUTPUT_MESSAGES}
@@ -118,6 +120,7 @@ class OtlpJsonLoader(TraceLoader):
         resource_attrs: dict,
         scope_name: str,
         scope_version: str,
+        schema_url: str = "",
     ) -> Span:
         """Convert OTLP span to normalized Span object."""
         attributes = self._extract_attributes(span_data.get("attributes", []))
@@ -126,6 +129,8 @@ class OtlpJsonLoader(TraceLoader):
             attributes[OTEL_SCOPE] = scope_name
         if scope_version:
             attributes[OTEL_SCOPE_VERSION] = scope_version
+        if schema_url:
+            attributes[OTEL_SCHEMA_URL] = schema_url
 
         self._promote_genai_event_attributes(span_data, attributes)
 

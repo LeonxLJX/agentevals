@@ -154,12 +154,15 @@ class AgentEvalsStreamingProcessor:
     def _span_to_otlp(self, span: ReadableSpan) -> dict:
         scope_name = span.instrumentation_scope.name if span.instrumentation_scope else ""
         scope_version = span.instrumentation_scope.version if span.instrumentation_scope else ""
+        schema_url = span.instrumentation_scope.schema_url if span.instrumentation_scope else ""
 
         attributes = []
         if scope_name:
             attributes.append({"key": "otel.scope.name", "value": {"stringValue": scope_name}})
         if scope_version:
             attributes.append({"key": "otel.scope.version", "value": {"stringValue": scope_version}})
+        if schema_url:
+            attributes.append({"key": "otel.schema_url", "value": {"stringValue": schema_url}})
 
         if span.attributes:
             for key, value in span.attributes.items():

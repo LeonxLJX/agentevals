@@ -12,6 +12,7 @@ OTEL_SERVICE_NAME = "service.name"
 # OTel scope
 OTEL_SCOPE = "otel.scope.name"
 OTEL_SCOPE_VERSION = "otel.scope.version"
+OTEL_SCHEMA_URL = "otel.schema_url"
 
 # Google ADK scope value
 ADK_SCOPE_VALUE = "gcp.vertex.agent"
@@ -73,3 +74,8 @@ ADK_LLM_RESPONSE = "gcp.vertex.agent.llm_response"
 ADK_TOOL_CALL_ARGS = "gcp.vertex.agent.tool_call_args"
 ADK_TOOL_RESPONSE = "gcp.vertex.agent.tool_response"
 ADK_INVOCATION_ID = "gcp.vertex.agent.invocation_id"
+
+# GenAI attribute alias table
+GENAI_ATTRIBUTE_ALIASES: dict[str, list[str]] = {
+    OTEL_GENAI_PROVIDER_NAME: [OTEL_GENAI_SYSTEM],
+}
