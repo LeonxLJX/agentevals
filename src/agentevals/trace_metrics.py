@@ -185,6 +185,7 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
         "model": None,
         "response_model": None,
         "provider": None,
+        "semconv_version": "unknown",
         "start_time": None,
         "user_input_preview": None,
         "final_output_preview": None,
@@ -209,6 +210,7 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
                 metadata["response_model"] = ext["response_model"]
             if ext["provider"]:
                 metadata["provider"] = ext["provider"]
+            metadata["semconv_version"] = ext["semconv_version"]
 
             user_text = extract_user_text_from_attrs(llm_spans[0].tags)
             if user_text:

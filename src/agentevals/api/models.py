@@ -119,6 +119,7 @@ class TraceConversionMetadata(CamelModel):
     model: str | None = None
     response_model: str | None = None
     provider: str | None = None
+    semconv_version: str | None = None
     start_time: int | None = None
     user_input_preview: str | None = None
     final_output_preview: str | None = None

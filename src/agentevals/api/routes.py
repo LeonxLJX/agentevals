@@ -487,6 +487,7 @@ async def convert_trace_files(
                 meta = TraceConversionMetadata(
                     agent_name=meta_dict.get("agent_name"),
                     model=meta_dict.get("model"),
+                    semconv_version=meta_dict.get("semconv_version"),
                     start_time=meta_dict.get("start_time"),
                     user_input_preview=meta_dict.get("user_input_preview"),
                     final_output_preview=meta_dict.get("final_output_preview"),
