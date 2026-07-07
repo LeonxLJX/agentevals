@@ -64,7 +64,7 @@ class RunResult(BaseModel):
 
 
 def load_eval_set(path: str) -> EvalSet:
-    with open(path, encoding="utf-8") as f:
+    with open(path) as f:
         data = json.load(f)
     return EvalSet.model_validate(data)
 

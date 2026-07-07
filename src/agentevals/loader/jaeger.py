@@ -43,7 +43,7 @@ class JaegerJsonLoader(TraceLoader):
         return "jaeger-json"
 
     def load(self, source: str) -> list[Trace]:
-        with open(source, encoding="utf-8") as f:
+        with open(source) as f:
             raw = json.load(f)
 
         if not isinstance(raw, dict) or "data" not in raw:

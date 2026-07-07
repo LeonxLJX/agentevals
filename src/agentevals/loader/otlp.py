@@ -36,7 +36,7 @@ class OtlpJsonLoader(TraceLoader):
 
     def load(self, source: str) -> list[Trace]:
         """Load OTLP JSON file or JSONL (one span per line)."""
-        with open(source, encoding="utf-8") as f:
+        with open(source) as f:
             content = f.read().strip()
 
         if not content:

@@ -51,7 +51,7 @@ def detect_format(path: str) -> str | None:
     load can fall back to a default.
     """
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path) as f:
             if path.lower().endswith(".jsonl"):
                 return OTLP_JSON
             data = json.load(f)
