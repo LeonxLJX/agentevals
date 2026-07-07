@@ -58,7 +58,7 @@ def load_eval_config(path: str | Path) -> EvalRunConfig:
     if not path.exists():
         raise FileNotFoundError(f"Eval config file not found: {path}")
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if not isinstance(data, dict):

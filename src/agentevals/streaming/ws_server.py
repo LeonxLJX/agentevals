@@ -664,7 +664,7 @@ class StreamingTraceManager:
         # span here; otherwise it's lost on reload and runs can't group by agent.
         service_name = (session.metadata or {}).get(OTEL_SERVICE_NAME)
 
-        with open(temp_file, "w") as f:  # noqa: ASYNC230
+        with open(temp_file, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             for span in enriched_spans:
                 span_copy = span.copy()
                 span_copy["traceId"] = session.trace_id

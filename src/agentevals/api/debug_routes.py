@@ -114,7 +114,7 @@ def _collect_temp_files(session_ids: set[str] | None = None) -> dict[str, str]:
                 if sid not in session_ids:
                     continue
             try:
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     files[basename] = f.read()
             except OSError:
                 logger.debug("Could not read temp file %s", path)
