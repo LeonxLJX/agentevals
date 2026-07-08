@@ -84,7 +84,7 @@ def _write_cache(key: str, evaluators: list[EvaluatorInfo]) -> None:
                     "evaluators": [asdict(g) for g in evaluators],
                 }
             ),
-            encoding="utf-8"
+            encoding="utf-8",
         )
     except Exception:
         pass

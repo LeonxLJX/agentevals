@@ -106,7 +106,7 @@ def test_run_preserves_config_file_settings_when_flags_omitted(monkeypatch, tmp_
             output: json
             """
         ),
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
     captured = {}

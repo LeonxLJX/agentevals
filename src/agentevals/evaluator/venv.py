@@ -42,7 +42,11 @@ def _venv_key(evaluator_path: Path) -> str:
 
 def _is_venv_valid(venv_dir: Path, req_hash: str) -> bool:
     hash_file = venv_dir / _HASH_FILE
-    return _venv_python(venv_dir).exists() and hash_file.exists() and hash_file.read_text(encoding="utf-8").strip() == req_hash
+    return (
+        _venv_python(venv_dir).exists()
+        and hash_file.exists()
+        and hash_file.read_text(encoding="utf-8").strip() == req_hash
+    )
 
 
 def _create_venv(venv_dir: Path, uv: str | None) -> None:
