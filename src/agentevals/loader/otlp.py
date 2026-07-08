@@ -94,12 +94,13 @@ class OtlpJsonLoader(TraceLoader):
         all_spans = []
         for resource_span in resource_spans:
             resource_attrs = self._extract_attributes(resource_span.get("resource", {}).get("attributes", []))
+            resource_schema_url = resource_span.get("schemaUrl", "")
             scope_spans = resource_span.get("scopeSpans") or resource_span.get("instrumentationLibrarySpans", [])
             for scope_span in scope_spans:
                 scope = scope_span.get("scope") or scope_span.get("instrumentationLibrary") or {}
                 scope_name = scope.get("name", "")
                 scope_version = scope.get("version", "")
-                schema_url = scope_span.get("schemaUrl", "")
+                schema_url = scope_span.get("schemaUrl", "") or resource_schema_url
 
                 for span_data in scope_span.get("spans", []):
                     span = self._parse_span(span_data, resource_attrs, scope_name, scope_version, schema_url)

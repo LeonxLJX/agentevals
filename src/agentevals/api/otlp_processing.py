@@ -39,6 +39,7 @@ async def process_traces(body: dict, manager: StreamingTraceManager) -> None:
     for resource_span in body.get("resourceSpans", []):
         resource_attrs = resource_span.get("resource", {}).get("attributes", [])
         metadata = _extract_agentevals_metadata(resource_attrs)
+        resource_schema_url = resource_span.get("schemaUrl", "")
 
         if not metadata.get("conversation_id"):
             metadata["conversation_id"] = _prescan_conversation_id(resource_span)
@@ -47,7 +48,7 @@ async def process_traces(body: dict, manager: StreamingTraceManager) -> None:
             scope = scope_span.get("scope", {})
             scope_name = scope.get("name", "")
             scope_version = scope.get("version", "")
-            schema_url = scope_span.get("schemaUrl", "")
+            schema_url = scope_span.get("schemaUrl", "") or resource_schema_url
 
             for span_data in scope_span.get("spans", []):
                 span = _normalize_span(span_data, scope_name, scope_version, schema_url)
