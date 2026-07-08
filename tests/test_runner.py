@@ -265,7 +265,7 @@ class TestRunner:
     def test_extract_trace_metadata_schema_version_unknown_when_schema_missing(self):
         trace = _make_tool_trace(["tool_a"])
         metadata = extract_trace_metadata(trace)
-        assert metadata["schema_version"] == "unknown"
+        assert metadata["schema_version"] is None
 
     def test_extract_trace_metadata_schema_version_unknown_when_schema_malformed(self):
         trace = _make_tool_trace(["tool_a"])
@@ -279,7 +279,7 @@ class TestRunner:
         if llm_spans:
             llm_spans[0].tags["otel.schema_url"] = "not-a-schema-version"
         metadata = extract_trace_metadata(trace)
-        assert metadata["schema_version"] == "unknown"
+        assert metadata["schema_version"] is None
 
     def test_extract_trace_metadata_schema_version_from_valid_schema_url(self):
         trace = _make_tool_trace(["tool_a"])
