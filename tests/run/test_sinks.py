@@ -77,7 +77,7 @@ class TestFileSink:
         await sink.emit_partial(run_id, [_result(run_id)], attempt=1)
         await sink.emit_final(run_id, {"trace_count": 1}, attempt=1)
         await sink.emit_error(run_id, "boom", attempt=1)
-        lines = path.read_text().strip().splitlines()
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 3
         partial = json.loads(lines[0])
         assert partial["phase"] == "partial"
@@ -249,7 +249,7 @@ class TestPluginSinkRegistry:
         fanout = build_sinks([{"kind": "plugin_file", "path": str(path)}])
         run_id = uuid4()
         await fanout.emit_final(run_id, {"ok": True}, attempt=1)
-        assert json.loads(path.read_text().strip())["summary"] == {"ok": True}
+        assert json.loads(path.read_text(encoding="utf-8").strip())["summary"] == {"ok": True}
 
     async def test_programmatic_registration_overrides_builtin(self, isolated_sink_plugins):
         finals: list[dict] = []
@@ -299,7 +299,7 @@ class TestSinkEntryPoints:
         ep.load.assert_called_once_with()
         run_id = uuid4()
         await fanout.emit_final(run_id, {"via": "ep"}, attempt=1)
-        assert json.loads(path.read_text().strip())["summary"] == {"via": "ep"}
+        assert json.loads(path.read_text(encoding="utf-8").strip())["summary"] == {"via": "ep"}
 
     async def test_builtin_kind_does_not_load_colliding_entry_point(self, isolated_sink_plugins, capsys):
         ep = MagicMock()
@@ -350,7 +350,7 @@ class TestSinkEntryPoints:
         assert any("unknown sink kind 'demo_ndjson'" in r.getMessage() for r in caplog.records)
         run_id = uuid4()
         await fanout.emit_final(run_id, {"ok": True}, attempt=1)
-        assert json.loads(path.read_text().strip())["summary"] == {"ok": True}
+        assert json.loads(path.read_text(encoding="utf-8").strip())["summary"] == {"ok": True}
 
 
 def _demo_example_sink_installed() -> bool:
@@ -372,7 +372,7 @@ class TestDemoNdjsonExampleSink:
         sink = create_demo_sink({"path": "."})
         await sink.emit_final(uuid4(), {"x": 1}, attempt=1)
         out = tmp_path / "agentevals-demo-sink.ndjson"
-        assert json.loads(out.read_text().strip())["summary"] == {"x": 1}
+        assert json.loads(out.read_text(encoding="utf-8").strip())["summary"] == {"x": 1}
 
     async def test_existing_directory_appends_default_filename(self, tmp_path):
         d = tmp_path / "outdir"
@@ -390,7 +390,7 @@ class TestDemoNdjsonExampleSink:
 
         sink = create_demo_sink({"path": str(d), "filename": "runs.jsonl"})
         await sink.emit_final(uuid4(), {"n": 2}, attempt=1)
-        assert json.loads((d / "runs.jsonl").read_text().strip())["summary"] == {"n": 2}
+        assert json.loads((d / "runs.jsonl").read_text(encoding="utf-8").strip())["summary"] == {"n": 2}
 
 
 class TestSinkFanoutErrorIsolation:

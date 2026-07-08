@@ -93,7 +93,7 @@ async def test_run_servers_shares_one_trace_manager_across_live_servers(monkeypa
 
 def test_run_preserves_config_file_settings_when_flags_omitted(monkeypatch, tmp_path):
     trace_file = tmp_path / "trace.json"
-    trace_file.write_text("{}")
+    trace_file.write_text("{}", encoding="utf-8")
     config_file = tmp_path / "eval.yaml"
     config_file.write_text(
         textwrap.dedent(
@@ -105,7 +105,8 @@ def test_run_preserves_config_file_settings_when_flags_omitted(monkeypatch, tmp_
             trace_format: otlp-json
             output: json
             """
-        )
+        ),
+        encoding="utf-8",
     )
 
     captured = {}
@@ -129,7 +130,7 @@ def test_run_preserves_config_file_settings_when_flags_omitted(monkeypatch, tmp_
 
 def test_run_merges_explicit_metrics_with_config_file(monkeypatch, tmp_path):
     trace_file = tmp_path / "trace.json"
-    trace_file.write_text("{}")
+    trace_file.write_text("{}", encoding="utf-8")
     config_file = tmp_path / "eval.yaml"
     config_file.write_text(
         textwrap.dedent(
@@ -141,7 +142,8 @@ def test_run_merges_explicit_metrics_with_config_file(monkeypatch, tmp_path):
                 type: code
                 path: ./examples/custom_evaluators/tool_call_checker.py
             """
-        )
+        ),
+        encoding="utf-8",
     )
 
     captured = {}

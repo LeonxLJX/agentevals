@@ -378,7 +378,7 @@ def create_server(server_url: str | None = None, **fastmcp_kwargs: Any) -> FastM
 
         raw = await _post("/api/streaming/get-trace", {"session_id": session_id})
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
             f.write(raw["traceContent"])
             tmp_path = f.name
 

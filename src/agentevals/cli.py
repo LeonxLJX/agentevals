@@ -840,8 +840,8 @@ def migrate_create(name: str, output_dir: str | None) -> None:
         f"-- Migration {next_version:06d}: {name}\n"
         "-- Once tagged in a release this file is immutable. Fix bugs by adding a NEW migration.\n\n"
     )
-    up_path.write_text(header)
-    down_path.write_text(header)
+    up_path.write_text(header, encoding="utf-8")
+    down_path.write_text(header, encoding="utf-8")
     click.echo(f"Created {up_path}")
     click.echo(f"Created {down_path}")
 

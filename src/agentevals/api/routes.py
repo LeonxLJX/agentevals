@@ -129,7 +129,7 @@ def _load_eval_set_dict(path: str | None) -> dict | None:
     if not path:
         return None
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         logger.warning("could not re-read eval_set file at %s for persistence", path)

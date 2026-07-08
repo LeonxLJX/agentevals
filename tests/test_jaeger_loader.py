@@ -51,7 +51,7 @@ class TestJaegerJsonLoader:
 
     def test_load_minimal(self, loader, minimal_jaeger_json, tmp_path):
         path = tmp_path / "test.json"
-        path.write_text(json.dumps(minimal_jaeger_json))
+        path.write_text(json.dumps(minimal_jaeger_json), encoding="utf-8")
 
         traces = loader.load(str(path))
         assert len(traces) == 1
@@ -63,7 +63,7 @@ class TestJaegerJsonLoader:
 
     def test_span_tree_structure(self, loader, minimal_jaeger_json, tmp_path):
         path = tmp_path / "test.json"
-        path.write_text(json.dumps(minimal_jaeger_json))
+        path.write_text(json.dumps(minimal_jaeger_json), encoding="utf-8")
 
         trace = loader.load(str(path))[0]
 
@@ -79,7 +79,7 @@ class TestJaegerJsonLoader:
 
     def test_tags_parsed(self, loader, minimal_jaeger_json, tmp_path):
         path = tmp_path / "test.json"
-        path.write_text(json.dumps(minimal_jaeger_json))
+        path.write_text(json.dumps(minimal_jaeger_json), encoding="utf-8")
 
         trace = loader.load(str(path))[0]
         root = trace.root_spans[0]
@@ -89,7 +89,7 @@ class TestJaegerJsonLoader:
 
     def test_invalid_format_raises(self, loader, tmp_path):
         path = tmp_path / "bad.json"
-        path.write_text(json.dumps({"not_data": []}))
+        path.write_text(json.dumps({"not_data": []}), encoding="utf-8")
 
         with pytest.raises(ValueError, match="Invalid Jaeger JSON format"):
             loader.load(str(path))
@@ -97,14 +97,14 @@ class TestJaegerJsonLoader:
     def test_empty_spans_skipped(self, loader, tmp_path):
         data = {"data": [{"traceID": "empty", "spans": []}]}
         path = tmp_path / "empty.json"
-        path.write_text(json.dumps(data))
+        path.write_text(json.dumps(data), encoding="utf-8")
 
         traces = loader.load(str(path))
         assert len(traces) == 0
 
     def test_find_spans_by_operation(self, loader, minimal_jaeger_json, tmp_path):
         path = tmp_path / "test.json"
-        path.write_text(json.dumps(minimal_jaeger_json))
+        path.write_text(json.dumps(minimal_jaeger_json), encoding="utf-8")
 
         trace = loader.load(str(path))[0]
         found = trace.find_spans_by_operation("child")
@@ -113,7 +113,7 @@ class TestJaegerJsonLoader:
 
     def test_find_spans_by_tag(self, loader, minimal_jaeger_json, tmp_path):
         path = tmp_path / "test.json"
-        path.write_text(json.dumps(minimal_jaeger_json))
+        path.write_text(json.dumps(minimal_jaeger_json), encoding="utf-8")
 
         trace = loader.load(str(path))[0]
         found = trace.find_spans_by_tag("key1", "val1")

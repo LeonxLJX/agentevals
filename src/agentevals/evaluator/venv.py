@@ -42,7 +42,11 @@ def _venv_key(evaluator_path: Path) -> str:
 
 def _is_venv_valid(venv_dir: Path, req_hash: str) -> bool:
     hash_file = venv_dir / _HASH_FILE
-    return _venv_python(venv_dir).exists() and hash_file.exists() and hash_file.read_text().strip() == req_hash
+    return (
+        _venv_python(venv_dir).exists()
+        and hash_file.exists()
+        and hash_file.read_text(encoding="utf-8").strip() == req_hash
+    )
 
 
 def _create_venv(venv_dir: Path, uv: str | None) -> None:
@@ -104,7 +108,7 @@ def ensure_venv(evaluator_path: Path) -> Path | None:
         stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
         raise RuntimeError(f"Failed to set up environment for evaluator '{evaluator_path.stem}': {stderr}") from exc
 
-    (venv_dir / _HASH_FILE).write_text(req_hash)
+    (venv_dir / _HASH_FILE).write_text(req_hash, encoding="utf-8")
     logger.info("Environment ready for '%s'", evaluator_path.stem)
     return _venv_python(venv_dir)
 

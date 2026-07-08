@@ -76,7 +76,7 @@ class TestStorageSettings:
 
     def test_from_env_url_file_takes_precedence(self, tmp_path, monkeypatch):
         dsn_file = tmp_path / "dsn"
-        dsn_file.write_text("postgresql://from-file/db\n")
+        dsn_file.write_text("postgresql://from-file/db\n", encoding="utf-8")
         monkeypatch.setenv("AGENTEVALS_STORAGE_BACKEND", "postgres")
         monkeypatch.setenv("AGENTEVALS_DATABASE_URL", "postgresql://from-env/db")
         monkeypatch.setenv("AGENTEVALS_DATABASE_URL_FILE", str(dsn_file))

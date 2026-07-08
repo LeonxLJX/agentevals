@@ -88,7 +88,7 @@ def _read_dsn_from_env() -> str | None:
     file_path = os.environ.get("AGENTEVALS_DATABASE_URL_FILE")
     if file_path:
         try:
-            with open(file_path) as f:
+            with open(file_path, encoding="utf-8") as f:
                 return f.read().strip() or None
         except OSError as exc:
             raise ValueError(f"AGENTEVALS_DATABASE_URL_FILE={file_path!r} is unreadable: {exc}") from exc
