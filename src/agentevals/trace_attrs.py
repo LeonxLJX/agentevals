@@ -6,6 +6,8 @@ extraction, streaming, and runner modules.
 Covers OTel GenAI semantic conventions up to v1.40.0.
 """
 
+from typing import Optional
+
 # OTel resource
 OTEL_SERVICE_NAME = "service.name"
 
@@ -76,6 +78,4 @@ ADK_TOOL_RESPONSE = "gcp.vertex.agent.tool_response"
 ADK_INVOCATION_ID = "gcp.vertex.agent.invocation_id"
 
 # GenAI attribute alias table
-GENAI_ATTRIBUTE_ALIASES: dict[str, list[str]] = {
-    OTEL_GENAI_PROVIDER_NAME: [OTEL_GENAI_SYSTEM],
-}
+GENAI_ATTRIBUTE_ALIASES: Optional[dict[str, list[str]]] = None
