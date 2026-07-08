@@ -19,6 +19,7 @@ from ..trace_attrs import (
     OTEL_GENAI_CONVERSATION_ID,
     OTEL_GENAI_INPUT_MESSAGES,
     OTEL_GENAI_OUTPUT_MESSAGES,
+    OTEL_SCHEMA_URL,
     OTEL_SCOPE,
     OTEL_SCOPE_VERSION,
 )
@@ -38,6 +39,7 @@ async def process_traces(body: dict, manager: StreamingTraceManager) -> None:
     for resource_span in body.get("resourceSpans", []):
         resource_attrs = resource_span.get("resource", {}).get("attributes", [])
         metadata = _extract_agentevals_metadata(resource_attrs)
+        resource_schema_url = resource_span.get("schemaUrl", "")
 
         if not metadata.get("conversation_id"):
             metadata["conversation_id"] = _prescan_conversation_id(resource_span)
@@ -46,9 +48,10 @@ async def process_traces(body: dict, manager: StreamingTraceManager) -> None:
             scope = scope_span.get("scope", {})
             scope_name = scope.get("name", "")
             scope_version = scope.get("version", "")
+            schema_url = scope_span.get("schemaUrl", "") or resource_schema_url
 
             for span_data in scope_span.get("spans", []):
-                span = _normalize_span(span_data, scope_name, scope_version)
+                span = _normalize_span(span_data, scope_name, scope_version, schema_url)
                 trace_id = span.get("traceId", "")
 
                 if not trace_id:
@@ -200,12 +203,13 @@ def fix_protobuf_id_fields(data) -> None:
 _GENAI_EVENT_KEYS = {OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_OUTPUT_MESSAGES}
 
 
-def _normalize_span(span_data: dict, scope_name: str, scope_version: str) -> dict:
+def _normalize_span(span_data: dict, scope_name: str, scope_version: str, schema_url: str = "") -> dict:
     """Normalize an OTLP span for the downstream pipeline.
 
     Performs two transformations:
-    1. Injects otel.scope.name/version from the scopeSpans level into span
-       attributes (the pipeline expects them there).
+    1. Injects otel.scope.name/version (and otel.schema_url) from the
+       scopeSpans level into span attributes (the pipeline expects them
+       there).
     2. Promotes gen_ai.input.messages and gen_ai.output.messages from span
        events to span attributes. Some SDKs (e.g. Strands with
        OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental) store
@@ -222,6 +226,9 @@ def _normalize_span(span_data: dict, scope_name: str, scope_version: str) -> dic
     if scope_version and OTEL_SCOPE_VERSION not in existing_keys:
         attrs.append({"key": OTEL_SCOPE_VERSION, "value": {"stringValue": scope_version}})
         existing_keys.add(OTEL_SCOPE_VERSION)
+    if schema_url and OTEL_SCHEMA_URL not in existing_keys:
+        attrs.append({"key": OTEL_SCHEMA_URL, "value": {"stringValue": schema_url}})
+        existing_keys.add(OTEL_SCHEMA_URL)
 
     for event in span.get("events", []):
         for attr in event.get("attributes", []):

@@ -119,6 +119,24 @@ class TraceConversionMetadata(CamelModel):
     model: str | None = None
     response_model: str | None = None
     provider: str | None = None
+    schema_version: str | None = Field(
+        default=None,
+        description=(
+            "Version segment parsed from the emitting scope's schema URL "
+            "(the path component after the schema family prefix). Per the "
+            "OpenTelemetry schema URL spec, this version is only meaningful "
+            "within its schema family — the host/path prefix before the "
+            "version. It is comparable across traces only if they share a "
+            "family, and equals the OpenTelemetry Semantic Conventions "
+            "version only for the OTel family "
+            "(https://opentelemetry.io/schemas/<version>). For traces from "
+            "a custom or mirrored schema family, this is that family's own "
+            "version number, not an OTel semconv version. The full schema "
+            "URL (otel.schema_url) is preserved separately wherever the "
+            "family needs to be disambiguated; this field is informational "
+            "only and does not drive extraction or alias-resolution logic."
+        ),
+    )
     start_time: int | None = None
     user_input_preview: str | None = None
     final_output_preview: str | None = None

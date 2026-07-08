@@ -6,6 +6,7 @@ import pytest
 
 from agentevals.config import BuiltinMetricDef, EvalRunConfig
 from agentevals.converter import convert_traces
+from agentevals.extraction import get_extractor
 from agentevals.loader.base import Span, Trace
 from agentevals.runner import _evaluate_trace, load_eval_set, run_evaluation
 from agentevals.trace_metrics import extract_trace_metadata
@@ -260,6 +261,39 @@ class TestRunner:
         assert "helm" in metadata["user_input_preview"].lower()
         assert metadata["final_output_preview"] is not None
         assert len(metadata["final_output_preview"]) > 0
+
+    def test_extract_trace_metadata_schema_version_unknown_when_schema_missing(self):
+        trace = _make_tool_trace(["tool_a"])
+        metadata = extract_trace_metadata(trace)
+        assert metadata["schema_version"] is None
+
+    def test_extract_trace_metadata_schema_version_unknown_when_schema_malformed(self):
+        trace = _make_tool_trace(["tool_a"])
+        extractor = get_extractor(trace)
+        inv_spans = extractor.find_invocation_spans(trace)
+        llm_spans = (
+            extractor.find_llm_spans_in(inv_spans[0])
+            if inv_spans
+            else [s for s in trace.all_spans if extractor.classify_span(s) == "llm"]
+        )
+        if llm_spans:
+            llm_spans[0].tags["otel.schema_url"] = "not-a-schema-version"
+        metadata = extract_trace_metadata(trace)
+        assert metadata["schema_version"] is None
+
+    def test_extract_trace_metadata_schema_version_from_valid_schema_url(self):
+        trace = _make_tool_trace(["tool_a"])
+        extractor = get_extractor(trace)
+        inv_spans = extractor.find_invocation_spans(trace)
+        llm_spans = (
+            extractor.find_llm_spans_in(inv_spans[0])
+            if inv_spans
+            else [s for s in trace.all_spans if extractor.classify_span(s) == "llm"]
+        )
+        if llm_spans:
+            llm_spans[0].tags["otel.schema_url"] = "https://opentelemetry.io/schemas/1.39.0"
+        metadata = extract_trace_metadata(trace)
+        assert metadata["schema_version"] == "1.39.0"
 
 
 class TestTrajectoryMatchType:

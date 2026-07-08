@@ -185,6 +185,7 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
         "model": None,
         "response_model": None,
         "provider": None,
+        "schema_version": None,
         "start_time": None,
         "user_input_preview": None,
         "final_output_preview": None,
@@ -204,11 +205,17 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
         if llm_spans:
             metadata["model"] = llm_spans[0].get_tag(OTEL_GENAI_REQUEST_MODEL)
 
+            # NOTE: `ext` is extracted only from `llm_spans[0]` (the first LLM
+            # span). If a trace mixes instrumentors or different
+            # instrumentation versions, extended model info that appears only
+            # on later LLM spans may not be captured here.
             ext = extract_extended_model_info_from_attrs(llm_spans[0].tags)
             if ext["response_model"]:
                 metadata["response_model"] = ext["response_model"]
             if ext["provider"]:
                 metadata["provider"] = ext["provider"]
+            if ext["schema_version"]:
+                metadata["schema_version"] = ext["schema_version"]
 
             user_text = extract_user_text_from_attrs(llm_spans[0].tags)
             if user_text:

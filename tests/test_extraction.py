@@ -21,6 +21,8 @@ from agentevals.extraction import (
     is_invocation_span,
     is_llm_span,
     is_tool_span,
+    resolve_attr,
+    resolve_schema_version,
 )
 from agentevals.loader.base import Span, Trace
 from agentevals.trace_attrs import (
@@ -28,6 +30,7 @@ from agentevals.trace_attrs import (
     ADK_LLM_RESPONSE,
     ADK_SCOPE_VALUE,
     ADK_TOOL_CALL_ARGS,
+    GENAI_ATTRIBUTE_ALIASES,
     OTEL_ERROR_TYPE,
     OTEL_GENAI_AGENT_NAME,
     OTEL_GENAI_INPUT_MESSAGES,
@@ -50,6 +53,7 @@ from agentevals.trace_attrs import (
     OTEL_GENAI_USAGE_CACHE_READ_TOKENS,
     OTEL_GENAI_USAGE_INPUT_TOKENS,
     OTEL_GENAI_USAGE_OUTPUT_TOKENS,
+    OTEL_SCHEMA_URL,
     OTEL_SCOPE,
 )
 
@@ -399,6 +403,16 @@ class TestFlattenOtlpAttributes:
     def test_empty(self):
         assert flatten_otlp_attributes([]) == {}
 
+    def test_schema_url_flows_through(self):
+        # otel.schema_url is a plain string attribute; flatten_otlp_attributes
+        # has no allowlist, so it passes through like any other key.
+        result = flatten_otlp_attributes(
+            [
+                {"key": OTEL_SCHEMA_URL, "value": {"stringValue": "https://opentelemetry.io/schemas/1.37.0"}},
+            ]
+        )
+        assert result == {OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.37.0"}
+
 
 # ---------------------------------------------------------------------------
 # Span classification helpers
@@ -451,6 +465,15 @@ class TestSpanClassifiers:
 
     def test_is_invocation_span_false(self):
         assert not is_invocation_span(_span(op="chat gpt-4"))
+
+    def test_schema_url_is_never_used_for_genai_detection(self):
+        # schema_url is a generic OTel field, not a GenAI-specific signal.
+        # A span carrying only otel.schema_url (no gen_ai.* attributes) must
+        # not be classified as an LLM/tool span by its presence alone.
+        span = _span(tags={OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.37.0"})
+        assert not is_llm_span(span)
+        assert not is_tool_span(span)
+        assert not is_adk_scope(span)
 
 
 # ---------------------------------------------------------------------------
@@ -662,6 +685,79 @@ class TestGenAIExtractorSpanFinding:
 
 
 # ---------------------------------------------------------------------------
+# resolve_attr — alias-aware attribute lookup
+# ---------------------------------------------------------------------------
+
+
+class TestResolveAttr:
+    def test_canonical_present_alias_absent(self):
+        attrs = {OTEL_GENAI_PROVIDER_NAME: "openai"}
+        assert resolve_attr(attrs, OTEL_GENAI_PROVIDER_NAME) == "openai"
+
+    def test_canonical_absent_alias_present(self):
+        attrs = {OTEL_GENAI_SYSTEM: "anthropic"}
+        assert resolve_attr(attrs, OTEL_GENAI_PROVIDER_NAME) == "anthropic"
+
+    def test_both_present_canonical_wins(self):
+        attrs = {
+            OTEL_GENAI_PROVIDER_NAME: "openai",
+            OTEL_GENAI_SYSTEM: "old_value",
+        }
+        assert resolve_attr(attrs, OTEL_GENAI_PROVIDER_NAME) == "openai"
+
+    def test_neither_present_returns_none(self):
+        assert resolve_attr({}, OTEL_GENAI_PROVIDER_NAME) is None
+
+    def test_unknown_canonical_key_with_no_alias_entry_returns_none(self):
+        # A key with no entry in GENAI_ATTRIBUTE_ALIASES simply has no
+        # fallback list; absence should not raise.
+        assert resolve_attr({}, "gen_ai.some.unmapped.key") is None
+
+    def test_alias_table_contains_expected_seed_entry(self):
+        # Sanity check that the table wiring itself is intact.
+        assert OTEL_GENAI_SYSTEM in GENAI_ATTRIBUTE_ALIASES.get(OTEL_GENAI_PROVIDER_NAME, [])
+
+
+# ---------------------------------------------------------------------------
+# resolve_schema_version
+# ---------------------------------------------------------------------------
+
+
+class TestResolveSchemaVersion:
+    def test_valid_schema_url(self):
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0") == "1.37.0"
+
+    def test_valid_schema_url_with_trailing_slash(self):
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.4.0/") == "1.4.0"
+
+    def test_valid_schema_url_with_prerelease(self):
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0-rc.1") == "1.37.0-rc.1"
+
+    def test_valid_schema_url_with_build_metadata(self):
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0+build.5") == "1.37.0+build.5"
+
+    def test_none_degrades_to_none(self):
+        assert resolve_schema_version(None) is None
+
+    def test_empty_string_degrades_to_none(self):
+        assert resolve_schema_version("") is None
+
+    def test_malformed_string_degrades_to_none(self):
+        assert resolve_schema_version("not-a-schema-url") is None
+
+    def test_non_version_last_path_segment_returns_none(self):
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.4.0/extra") is None
+
+    def test_non_string_input_degrades_to_none(self):
+        # Defensive: attrs values are technically Any; must not raise.
+        assert resolve_schema_version(123) is None  # type: ignore[arg-type]
+
+    def test_never_raises_on_garbage_input(self):
+        for garbage in (object(), [], {}, 1.5):
+            assert resolve_schema_version(garbage) is None  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
 # extract_extended_model_info_from_attrs
 # ---------------------------------------------------------------------------
 
@@ -793,6 +889,7 @@ class TestExtractExtendedModelInfo:
             OTEL_GENAI_USAGE_CACHE_CREATION_TOKENS: 2000,
             OTEL_GENAI_USAGE_CACHE_READ_TOKENS: 5000,
             OTEL_ERROR_TYPE: None,
+            OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.37.0",
         }
         result = extract_extended_model_info_from_attrs(attrs)
         assert result["provider"] == "anthropic"
@@ -805,6 +902,50 @@ class TestExtractExtendedModelInfo:
         assert result["cache_creation_tokens"] == 2000
         assert result["cache_read_tokens"] == 5000
         assert result["error_type"] is None
+        assert result["schema_version"] == "1.37.0"
+
+    # -----------------------------------------------------------------
+    # schema_version / schema_url resolution
+    # -----------------------------------------------------------------
+
+    def test_schema_version_newest_attribute_names_only(self):
+        # Fixture with only newest attribute names (gen_ai.provider.name,
+        # not gen_ai.system) plus a schema_url; all fields, including
+        # schema_version, should populate normally.
+        attrs = {
+            OTEL_GENAI_PROVIDER_NAME: "openai",
+            OTEL_GENAI_REQUEST_MODEL: "gpt-4o",
+            OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.37.0",
+        }
+        result = extract_extended_model_info_from_attrs(attrs)
+        assert result["schema_version"] == "1.37.0"
+        assert result["provider"] == "openai"
+        assert result["request_model"] == "gpt-4o"
+
+    def test_schema_version_with_aliased_attribute_names_only(self):
+        # Older instrumentor: gen_ai.system present, gen_ai.provider.name
+        # absent. provider should still populate via alias fallback, and
+        # schema_version should resolve from an older schema_url.
+        attrs = {
+            OTEL_GENAI_SYSTEM: "anthropic",
+            OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.20.0",
+        }
+        result = extract_extended_model_info_from_attrs(attrs)
+        assert result["provider"] == "anthropic"
+        assert result["schema_version"] == "1.20.0"
+
+    def test_schema_version_missing_schema_url_entirely(self):
+        # No schema_url at all -> None, with no impact on other fields.
+        attrs = {OTEL_GENAI_PROVIDER_NAME: "openai", OTEL_GENAI_REQUEST_MODEL: "gpt-4o"}
+        result = extract_extended_model_info_from_attrs(attrs)
+        assert result["schema_version"] is None
+        assert result["provider"] == "openai"
+        assert result["request_model"] == "gpt-4o"
+
+    def test_schema_version_malformed_schema_url(self):
+        attrs = {OTEL_SCHEMA_URL: "not-a-real-schema-url"}
+        result = extract_extended_model_info_from_attrs(attrs)
+        assert result["schema_version"] is None
 
 
 # ---------------------------------------------------------------------------
