@@ -26,7 +26,8 @@ def test_load_eval_config_rejects_legacy_keys(tmp_path):
             trace_format: otlp-json
             output: json
             """
-        )
+        ), 
+        encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match="Legacy eval config keys are no longer supported"):

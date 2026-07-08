@@ -15,7 +15,7 @@ TEMPO_FIXTURE = os.path.join(SAMPLES_DIR, "tempo_export_with_batches.json")
 
 
 def _write_tmp(content: str, suffix: str = ".json") -> str:
-    f = tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False)
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False, encoding="utf-8")
     f.write(content)
     f.close()
     return f.name

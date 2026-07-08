@@ -38,7 +38,7 @@ class DemoNdjsonSink(ResultSink):
     async def _write(self, payload: dict) -> None:
         async with self._lock:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with self._path.open("a") as f:  # noqa: ASYNC230
+            with self._path.open("a", encoding="utf-8") as f:  # noqa: ASYNC230
                 f.write(json.dumps(payload) + "\n")
 
     async def emit_partial(self, run_id: UUID, results: list[Result], attempt: int) -> None:

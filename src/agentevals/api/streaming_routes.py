@@ -225,7 +225,7 @@ async def evaluate_sessions(
 
         import tempfile
 
-        eval_set_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        eval_set_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(eval_set_response.data.eval_set, eval_set_file)
         eval_set_file.close()
 

@@ -1330,7 +1330,7 @@ class TestStreamingDownload:
         assert resp.status_code == 404
 
     def test_download_success(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, dir=tempfile.gettempdir()) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, dir=tempfile.gettempdir(), encoding="utf-8") as f:
             f.write('{"test": true}')
             fname = os.path.basename(f.name)
 

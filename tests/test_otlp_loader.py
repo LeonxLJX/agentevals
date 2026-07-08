@@ -43,7 +43,7 @@ def test_otlp_loader_jsonl_format(sample_otlp_span):
     """Test loading JSONL format (one span per line)."""
     loader = OtlpJsonLoader()
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
         f.write(json.dumps(sample_otlp_span) + "\n")
         temp_path = f.name
 
@@ -110,7 +110,7 @@ def test_otlp_loader_full_export():
         ]
     }
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(otlp_export, f)
         temp_path = f.name
 
@@ -169,7 +169,7 @@ def test_otlp_loader_parent_child_relationships():
         },
     ]
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
         for span in spans:
             f.write(json.dumps(span) + "\n")
         temp_path = f.name
@@ -200,7 +200,7 @@ def test_otlp_loader_empty_file():
     """Test loading an empty file."""
     loader = OtlpJsonLoader()
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
         temp_path = f.name
 
     try:

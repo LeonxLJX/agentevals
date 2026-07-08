@@ -66,7 +66,7 @@ def _read_cache(key: str, ttl: int = _CACHE_TTL_SECONDS) -> list[EvaluatorInfo] 
     if not cache_file.exists():
         return None
     try:
-        data = json.loads(cache_file.read_text())
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
         if time.time() - data.get("ts", 0) > ttl:
             return None
         return [EvaluatorInfo(**item) for item in data["evaluators"]]
@@ -83,7 +83,8 @@ def _write_cache(key: str, evaluators: list[EvaluatorInfo]) -> None:
                     "ts": time.time(),
                     "evaluators": [asdict(g) for g in evaluators],
                 }
-            )
+            ),
+            encoding="utf-8"
         )
     except Exception:
         pass
