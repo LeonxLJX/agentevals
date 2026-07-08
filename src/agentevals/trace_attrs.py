@@ -78,4 +78,6 @@ ADK_TOOL_RESPONSE = "gcp.vertex.agent.tool_response"
 ADK_INVOCATION_ID = "gcp.vertex.agent.invocation_id"
 
 # GenAI attribute alias table
-GENAI_ATTRIBUTE_ALIASES: Optional[dict[str, list[str]]] = None
+GENAI_ATTRIBUTE_ALIASES: dict[str, list[str]] = {
+    OTEL_GENAI_PROVIDER_NAME: [OTEL_GENAI_SYSTEM],
+}
