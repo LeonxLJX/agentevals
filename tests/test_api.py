@@ -1598,6 +1598,41 @@ class TestConvertAutoDetect:
         assert traces[0]["traceId"] == "dd547580319ab0312cee07f1def50dad"
         assert len(traces[0]["invocations"]) == 1
 
+    def test_convert_otlp_scope_schema_url_propagates_schema_version(self):
+        payload = _make_otlp_json_payload()
+        scope_spans = payload["resourceSpans"][0]["scopeSpans"][0]
+        scope_spans["schemaUrl"] = "https://opentelemetry.io/schemas/1.39.0"
+        scope_spans["spans"].append(
+            {
+                "traceId": scope_spans["spans"][0]["traceId"],
+                "spanId": "s2",
+                "parentSpanId": scope_spans["spans"][0]["spanId"],
+                "name": "call_llm",
+                "startTimeUnixNano": "1100000",
+                "endTimeUnixNano": "1500000",
+                "attributes": [
+                    {
+                        "key": "gcp.vertex.agent.llm_request",
+                        "value": {"stringValue": json.dumps({"contents": [{"role": "user", "parts": [{"text": "hello"}]}]})},
+                    },
+                    {
+                        "key": "gcp.vertex.agent.llm_response",
+                        "value": {"stringValue": json.dumps({"content": {"role": "model", "parts": [{"text": "hi"}]}})},
+                    },
+                ],
+            }
+        )
+
+        body = _assert_envelope(
+            self.client.post(
+                "/api/convert",
+                files={"trace_files": ("trace.json", io.BytesIO(json.dumps(payload).encode()))},
+            )
+        )
+
+        metadata = body["data"]["traces"][0]["metadata"]
+        assert metadata["schemaVersion"] == "1.39.0"
+
     @patch("agentevals.api.routes.extract_trace_metadata")
     def test_convert_metadata_includes_schema_version(self, mock_extract_trace_metadata):
         mock_extract_trace_metadata.return_value = {
