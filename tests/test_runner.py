@@ -307,7 +307,9 @@ class TestTrajectoryMatchType:
         conv_result = convert_traces([_make_tool_trace(["helm_get_release", "helm_list_releases"])])[0]
 
         eval_set_path = tmp_path / "eval_set.json"
-        eval_set_path.write_text(json.dumps(_make_eval_set_json(["helm_list_releases", "helm_get_release"])))
+        eval_set_path.write_text(
+            json.dumps(_make_eval_set_json(["helm_list_releases", "helm_get_release"])), encoding="utf-8"
+        )
         eval_set = load_eval_set(str(eval_set_path))
 
         return asyncio.run(
@@ -346,7 +348,9 @@ class TestBuiltinCustomEvaluatorOverrides:
         conv_result = convert_traces([_make_tool_trace(["helm_get_release", "helm_list_releases"])])[0]
 
         eval_set_path = tmp_path / "eval_set.json"
-        eval_set_path.write_text(json.dumps(_make_eval_set_json(["helm_list_releases", "helm_get_release"])))
+        eval_set_path.write_text(
+            json.dumps(_make_eval_set_json(["helm_list_releases", "helm_get_release"])), encoding="utf-8"
+        )
         eval_set = load_eval_set(str(eval_set_path))
 
         trace_result = asyncio.run(

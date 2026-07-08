@@ -37,7 +37,7 @@ class InlineTraceFetcher:
     async def fetch(self, target: TraceTarget, context: dict) -> list[Trace]:
         if not target.inline:
             raise ValueError("InlineTraceFetcher requires target.inline to be set")
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
             json.dump(target.inline, f)
             path = Path(f.name)
         try:
@@ -61,7 +61,7 @@ class HttpTraceFetcher:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             payload = resp.json()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
             json.dump(payload, f)
             path = Path(f.name)
         try:

@@ -225,7 +225,7 @@ async def evaluate_sessions(
 
         import tempfile
 
-        eval_set_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        eval_set_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(eval_set_response.data.eval_set, eval_set_file)
         eval_set_file.close()
 
@@ -334,7 +334,7 @@ async def prepare_evaluation(
         temp_dir = tempfile.gettempdir()
 
         eval_set_file = os.path.join(temp_dir, f"eval_set_{request.golden_session_id}.json")
-        with open(eval_set_file, "w") as f:  # noqa: ASYNC230
+        with open(eval_set_file, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             json.dump(eval_set_response.data.eval_set, f)
 
         trace_files = []
@@ -415,7 +415,7 @@ async def get_trace(
         # evaluate-sessions path. Serializing spans here independently would
         # drop the resource attribute and lose agent identity on the run.
         trace_file = await manager._save_spans_to_temp_file(session)
-        with open(trace_file) as f:  # noqa: ASYNC230
+        with open(trace_file, encoding="utf-8") as f:  # noqa: ASYNC230
             trace_content = f.read()
         num_spans = sum(1 for line in trace_content.splitlines() if line.strip())
 
