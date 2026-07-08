@@ -1613,7 +1613,9 @@ class TestConvertAutoDetect:
                 "attributes": [
                     {
                         "key": "gcp.vertex.agent.llm_request",
-                        "value": {"stringValue": json.dumps({"contents": [{"role": "user", "parts": [{"text": "hello"}]}]})},
+                        "value": {
+                            "stringValue": json.dumps({"contents": [{"role": "user", "parts": [{"text": "hello"}]}]})
+                        },
                     },
                     {
                         "key": "gcp.vertex.agent.llm_response",
