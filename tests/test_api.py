@@ -1599,11 +1599,11 @@ class TestConvertAutoDetect:
         assert len(traces[0]["invocations"]) == 1
 
     @patch("agentevals.api.routes.extract_trace_metadata")
-    def test_convert_metadata_includes_semconv_version(self, mock_extract_trace_metadata):
+    def test_convert_metadata_includes_schema_version(self, mock_extract_trace_metadata):
         mock_extract_trace_metadata.return_value = {
             "agent_name": "agent",
             "model": "gpt-4o",
-            "semconv_version": "1.39.0",
+            "schema_version": "1.39.0",
             "start_time": 123,
             "user_input_preview": "hello",
             "final_output_preview": "world",
@@ -1617,7 +1617,7 @@ class TestConvertAutoDetect:
         )
 
         metadata = body["data"]["traces"][0]["metadata"]
-        assert metadata["semconvVersion"] == "1.39.0"
+        assert metadata["schemaVersion"] == "1.39.0"
 
     def test_unknown_shape_returns_load_warning(self):
         unknown = json.dumps({"some_other_shape": []}).encode()

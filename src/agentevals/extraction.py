@@ -67,7 +67,7 @@ FORMAT_DETECTION_SPAN_LIMIT = 10
 
 # Per the OTel schema URL spec (https://opentelemetry.io/docs/specs/otel/schemas/#schema-url),
 # a schema URL has the form `http[s]://server[:port]/path/<version>`.
-_SEMCONV_VERSION_RE = re.compile(
+_SCHEMA_VERSION_RE = re.compile(
     r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 
@@ -97,19 +97,21 @@ def resolve_attr(attrs: dict[str, Any], canonical_key: str) -> Any | None:
     return None
 
 
-def resolve_semconv_version(schema_url: str | None) -> str | None:
-    """Resolve a schema_url into a semconv version string.
+def resolve_schema_version(schema_url: str | None) -> str | None:
+    """Extract the version segment from a schema URL.
 
-    Per the OTel schema URL spec, the version is the last path segment of
-    the URL (e.g. "1.37.0" in "https://opentelemetry.io/schemas/1.37.0").
-    Degrades gracefully to None for missing, empty, or malformed input -
-    this function never raises.
+    Per the OTel schema URL spec, the version is the last path segment
+    (e.g. "1.37.0" in "https://opentelemetry.io/schemas/1.37.0").
+
+    It's scoped to that URL's schema family and only equals the OTel semconv
+    version for the official OTel family. Degrades gracefully to None for
+    missing, empty, or malformed input - never raises.
     """
     if not schema_url or not isinstance(schema_url, str):
         return None
 
     last_segment = schema_url.rstrip("/").rsplit("/", 1)[-1]
-    if _SEMCONV_VERSION_RE.match(last_segment):
+    if _SCHEMA_VERSION_RE.match(last_segment):
         return last_segment
 
     return None
@@ -245,7 +247,7 @@ class ExtendedModelInfo(TypedDict):
     cache_creation_tokens: int
     cache_read_tokens: int
     error_type: str | None
-    semconv_version: str | None
+    schema_version: str | None
 
 def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedModelInfo:
     """Extract extended model and provider metadata from span attributes.
@@ -255,10 +257,10 @@ def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedMod
         gen_ai.provider.name - the canonical, current name - is absent, for
         backward compat with pre-v1.37.0 instrumentors).
 
-        ``semconv_version`` is resolved from the scope's ``schema_url`` (captured
+        ``schema_version`` is resolved from the scope's ``schema_url`` (captured
         at ingest as the ``otel.schema_url`` attribute) and is ``None`` when
         absent or malformed. This is purely informational metadata about which
-        semconv version emitted the span - it is never used to detect whether a
+        schema version emitted the span - it is never used to detect whether a
         span is GenAI (that remains the sole responsibility of the existing
         gen_ai.* presence checks).
         """
@@ -273,7 +275,7 @@ def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedMod
         "cache_creation_tokens": _safe_cast(attrs.get(OTEL_GENAI_USAGE_CACHE_CREATION_TOKENS), int, 0),
         "cache_read_tokens": _safe_cast(attrs.get(OTEL_GENAI_USAGE_CACHE_READ_TOKENS), int, 0),
         "error_type": attrs.get(OTEL_ERROR_TYPE),
-        "semconv_version": resolve_semconv_version(attrs.get(OTEL_SCHEMA_URL)),
+        "schema_version": resolve_schema_version(attrs.get(OTEL_SCHEMA_URL)),
     }
 
 

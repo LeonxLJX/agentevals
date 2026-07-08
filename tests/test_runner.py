@@ -261,22 +261,22 @@ class TestRunner:
         assert metadata["final_output_preview"] is not None
         assert len(metadata["final_output_preview"]) > 0
 
-    def test_extract_trace_metadata_semconv_version_unknown_when_schema_missing(self):
+    def test_extract_trace_metadata_schema_version_unknown_when_schema_missing(self):
         trace = _make_tool_trace(["tool_a"])
         metadata = extract_trace_metadata(trace)
-        assert metadata["semconv_version"] == "unknown"
+        assert metadata["schema_version"] == "unknown"
 
-    def test_extract_trace_metadata_semconv_version_unknown_when_schema_malformed(self):
+    def test_extract_trace_metadata_schema_version_unknown_when_schema_malformed(self):
         trace = _make_tool_trace(["tool_a"])
-        trace.all_spans[1].tags["otel.schema_url"] = "not-a-semconv-version"
+        trace.all_spans[1].tags["otel.schema_url"] = "not-a-schema-version"
         metadata = extract_trace_metadata(trace)
-        assert metadata["semconv_version"] == "unknown"
+        assert metadata["schema_version"] == "unknown"
 
-    def test_extract_trace_metadata_semconv_version_from_valid_schema_url(self):
+    def test_extract_trace_metadata_schema_version_from_valid_schema_url(self):
         trace = _make_tool_trace(["tool_a"])
         trace.all_spans[1].tags["otel.schema_url"] = "https://opentelemetry.io/schemas/1.39.0"
         metadata = extract_trace_metadata(trace)
-        assert metadata["semconv_version"] == "1.39.0"
+        assert metadata["schema_version"] == "1.39.0"
 
 
 class TestTrajectoryMatchType:

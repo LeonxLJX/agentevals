@@ -22,7 +22,7 @@ from agentevals.extraction import (
     is_llm_span,
     is_tool_span,
     resolve_attr,
-    resolve_semconv_version,
+    resolve_schema_version,
 )
 from agentevals.loader.base import Span, Trace
 from agentevals.trace_attrs import (
@@ -719,42 +719,42 @@ class TestResolveAttr:
 
 
 # ---------------------------------------------------------------------------
-# resolve_semconv_version
+# resolve_schema_version
 # ---------------------------------------------------------------------------
 
 
-class TestResolveSemconvVersion:
+class TestResolveSchemaVersion:
     def test_valid_schema_url(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0") == "1.37.0"
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0") == "1.37.0"
 
     def test_valid_schema_url_with_trailing_slash(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.4.0/") == "1.4.0"
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.4.0/") == "1.4.0"
 
     def test_valid_schema_url_with_prerelease(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0-rc.1") == "1.37.0-rc.1"
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0-rc.1") == "1.37.0-rc.1"
 
     def test_valid_schema_url_with_build_metadata(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0+build.5") == "1.37.0+build.5"
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.37.0+build.5") == "1.37.0+build.5"
 
     def test_none_degrades_to_none(self):
-        assert resolve_semconv_version(None) is None
+        assert resolve_schema_version(None) is None
 
     def test_empty_string_degrades_to_none(self):
-        assert resolve_semconv_version("") is None
+        assert resolve_schema_version("") is None
 
     def test_malformed_string_degrades_to_none(self):
-        assert resolve_semconv_version("not-a-schema-url") is None
+        assert resolve_schema_version("not-a-schema-url") is None
 
     def test_non_version_last_path_segment_returns_none(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.4.0/extra") is None
+        assert resolve_schema_version("https://opentelemetry.io/schemas/1.4.0/extra") is None
 
     def test_non_string_input_degrades_to_none(self):
         # Defensive: attrs values are technically Any; must not raise.
-        assert resolve_semconv_version(123) is None  # type: ignore[arg-type]
+        assert resolve_schema_version(123) is None  # type: ignore[arg-type]
 
     def test_never_raises_on_garbage_input(self):
         for garbage in (object(), [], {}, 1.5):
-            assert resolve_semconv_version(garbage) is None  # type: ignore[arg-type]
+            assert resolve_schema_version(garbage) is None  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -902,50 +902,50 @@ class TestExtractExtendedModelInfo:
         assert result["cache_creation_tokens"] == 2000
         assert result["cache_read_tokens"] == 5000
         assert result["error_type"] is None
-        assert result["semconv_version"] == "1.37.0"
+        assert result["schema_version"] == "1.37.0"
 
     # -----------------------------------------------------------------
-    # semconv_version / schema_url resolution
+    # schema_version / schema_url resolution
     # -----------------------------------------------------------------
 
-    def test_semconv_version_newest_attribute_names_only(self):
+    def test_schema_version_newest_attribute_names_only(self):
         # Fixture with only newest attribute names (gen_ai.provider.name,
         # not gen_ai.system) plus a schema_url; all fields, including
-        # semconv_version, should populate normally.
+        # schema_version, should populate normally.
         attrs = {
             OTEL_GENAI_PROVIDER_NAME: "openai",
             OTEL_GENAI_REQUEST_MODEL: "gpt-4o",
             OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.37.0",
         }
         result = extract_extended_model_info_from_attrs(attrs)
-        assert result["semconv_version"] == "1.37.0"
+        assert result["schema_version"] == "1.37.0"
         assert result["provider"] == "openai"
         assert result["request_model"] == "gpt-4o"
 
-    def test_semconv_version_with_aliased_attribute_names_only(self):
+    def test_schema_version_with_aliased_attribute_names_only(self):
         # Older instrumentor: gen_ai.system present, gen_ai.provider.name
         # absent. provider should still populate via alias fallback, and
-        # semconv_version should resolve from an older schema_url.
+        # schema_version should resolve from an older schema_url.
         attrs = {
             OTEL_GENAI_SYSTEM: "anthropic",
             OTEL_SCHEMA_URL: "https://opentelemetry.io/schemas/1.20.0",
         }
         result = extract_extended_model_info_from_attrs(attrs)
         assert result["provider"] == "anthropic"
-        assert result["semconv_version"] == "1.20.0"
+        assert result["schema_version"] == "1.20.0"
 
-    def test_semconv_version_missing_schema_url_entirely(self):
+    def test_schema_version_missing_schema_url_entirely(self):
         # No schema_url at all -> None, with no impact on other fields.
         attrs = {OTEL_GENAI_PROVIDER_NAME: "openai", OTEL_GENAI_REQUEST_MODEL: "gpt-4o"}
         result = extract_extended_model_info_from_attrs(attrs)
-        assert result["semconv_version"] is None
+        assert result["schema_version"] is None
         assert result["provider"] == "openai"
         assert result["request_model"] == "gpt-4o"
 
-    def test_semconv_version_malformed_schema_url(self):
+    def test_schema_version_malformed_schema_url(self):
         attrs = {OTEL_SCHEMA_URL: "not-a-real-schema-url"}
         result = extract_extended_model_info_from_attrs(attrs)
-        assert result["semconv_version"] is None
+        assert result["schema_version"] is None
 
 
 # ---------------------------------------------------------------------------
