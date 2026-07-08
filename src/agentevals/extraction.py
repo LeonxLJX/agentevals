@@ -65,12 +65,11 @@ FORMAT_DETECTION_SPAN_LIMIT = 10
 # Alias-aware attribute resolution
 # ---------------------------------------------------------------------------
 
-# Matches a semver-like segment (e.g. "1.37.0") anywhere in a schema URL such
-# as "https://opentelemetry.io/schemas/1.37.0". Deliberately permissive since
-# schema_url values are free-form OTel-defined strings, not something we
-# control the shape of.
-_SEMCONV_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
-
+# Per the OTel schema URL spec (https://opentelemetry.io/docs/specs/otel/schemas/#schema-url),
+# a schema URL has the form `http[s]://server[:port]/path/<version>`.
+_SEMCONV_VERSION_RE = re.compile(
+    r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 
 def resolve_attr(attrs: dict[str, Any], canonical_key: str) -> Any | None:
     """Look up *canonical_key* in *attrs*, falling back to older aliased names.
@@ -98,23 +97,22 @@ def resolve_attr(attrs: dict[str, Any], canonical_key: str) -> Any | None:
     return None
 
 
-def resolve_semconv_version(schema_url: str | None) -> str:
+def resolve_semconv_version(schema_url: str | None) -> str | None:
     """Resolve a schema_url into a semconv version string.
 
-    Extracts a version-like segment (e.g. "1.37.0") from URLs such as
-    "https://opentelemetry.io/schemas/1.37.0". Degrades gracefully to
-    "unknown" for missing, empty, or malformed input - this function never
-    raises.
+    Per the OTel schema URL spec, the version is the last path segment of
+    the URL (e.g. "1.37.0" in "https://opentelemetry.io/schemas/1.37.0").
+    Degrades gracefully to None for missing, empty, or malformed input -
+    this function never raises.
     """
     if not schema_url or not isinstance(schema_url, str):
-        return "unknown"
+        return None
 
-    match = _SEMCONV_VERSION_RE.search(schema_url)
-    if match:
-        return match.group(1)
+    last_segment = schema_url.rstrip("/").rsplit("/", 1)[-1]
+    if _SEMCONV_VERSION_RE.match(last_segment):
+        return last_segment
 
-    return "unknown"
-
+    return None
 
 # ---------------------------------------------------------------------------
 # Pure extraction functions (operate on flat attribute dicts)
@@ -247,24 +245,23 @@ class ExtendedModelInfo(TypedDict):
     cache_creation_tokens: int
     cache_read_tokens: int
     error_type: str | None
-    semconv_version: str
-
+    semconv_version: str | None
 
 def extract_extended_model_info_from_attrs(attrs: dict[str, Any]) -> ExtendedModelInfo:
     """Extract extended model and provider metadata from span attributes.
 
-    Uses the alias-resolving lookup for attributes with known historical
-    renames (e.g. provider falls back to gen_ai.system when
-    gen_ai.provider.name - the canonical, current name - is absent, for
-    backward compat with pre-v1.37.0 instrumentors).
+        Uses the alias-resolving lookup for attributes with known historical
+        renames (e.g. provider falls back to gen_ai.system when
+        gen_ai.provider.name - the canonical, current name - is absent, for
+        backward compat with pre-v1.37.0 instrumentors).
 
-    ``semconv_version`` is resolved from the scope's ``schema_url`` (captured
-    at ingest as the ``otel.schema_url`` attribute) and degrades to
-    "unknown" when absent or malformed. This is purely informational
-    metadata about which semconv version emitted the span - it is never used
-    to detect whether a span is GenAI (that remains the sole responsibility
-    of the existing gen_ai.* presence checks).
-    """
+        ``semconv_version`` is resolved from the scope's ``schema_url`` (captured
+        at ingest as the ``otel.schema_url`` attribute) and is ``None`` when
+        absent or malformed. This is purely informational metadata about which
+        semconv version emitted the span - it is never used to detect whether a
+        span is GenAI (that remains the sole responsibility of the existing
+        gen_ai.* presence checks).
+        """
     return {
         "request_model": attrs.get(OTEL_GENAI_REQUEST_MODEL),
         "response_model": attrs.get(OTEL_GENAI_RESPONSE_MODEL),
