@@ -185,7 +185,7 @@ def extract_trace_metadata(trace, extractor=None) -> dict[str, Any]:
         "model": None,
         "response_model": None,
         "provider": None,
-        "schema_version": "unknown",
+        "schema_version": None,
         "start_time": None,
         "user_input_preview": None,
         "final_output_preview": None,
