@@ -727,25 +727,34 @@ class TestResolveSemconvVersion:
     def test_valid_schema_url(self):
         assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0") == "1.37.0"
 
-    def test_valid_schema_url_with_trailing_path(self):
-        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.4.0/extra") == "1.4.0"
+    def test_valid_schema_url_with_trailing_slash(self):
+        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.4.0/") == "1.4.0"
 
-    def test_none_degrades_to_unknown(self):
-        assert resolve_semconv_version(None) == "unknown"
+    def test_valid_schema_url_with_prerelease(self):
+        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0-rc.1") == "1.37.0-rc.1"
 
-    def test_empty_string_degrades_to_unknown(self):
-        assert resolve_semconv_version("") == "unknown"
+    def test_valid_schema_url_with_build_metadata(self):
+        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.37.0+build.5") == "1.37.0+build.5"
 
-    def test_malformed_string_degrades_to_unknown(self):
-        assert resolve_semconv_version("not-a-schema-url") == "unknown"
+    def test_none_degrades_to_none(self):
+        assert resolve_semconv_version(None) is None
 
-    def test_non_string_input_degrades_to_unknown(self):
+    def test_empty_string_degrades_to_none(self):
+        assert resolve_semconv_version("") is None
+
+    def test_malformed_string_degrades_to_none(self):
+        assert resolve_semconv_version("not-a-schema-url") is None
+
+    def test_non_version_last_path_segment_returns_none(self):
+        assert resolve_semconv_version("https://opentelemetry.io/schemas/1.4.0/extra") is None
+
+    def test_non_string_input_degrades_to_none(self):
         # Defensive: attrs values are technically Any; must not raise.
-        assert resolve_semconv_version(123) == "unknown"  # type: ignore[arg-type]
+        assert resolve_semconv_version(123) is None  # type: ignore[arg-type]
 
     def test_never_raises_on_garbage_input(self):
         for garbage in (object(), [], {}, 1.5):
-            assert resolve_semconv_version(garbage) == "unknown"  # type: ignore[arg-type]
+            assert resolve_semconv_version(garbage) is None  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -926,17 +935,17 @@ class TestExtractExtendedModelInfo:
         assert result["semconv_version"] == "1.20.0"
 
     def test_semconv_version_missing_schema_url_entirely(self):
-        # No schema_url at all -> "unknown", with no impact on other fields.
+        # No schema_url at all -> None, with no impact on other fields.
         attrs = {OTEL_GENAI_PROVIDER_NAME: "openai", OTEL_GENAI_REQUEST_MODEL: "gpt-4o"}
         result = extract_extended_model_info_from_attrs(attrs)
-        assert result["semconv_version"] == "unknown"
+        assert result["semconv_version"] is None
         assert result["provider"] == "openai"
         assert result["request_model"] == "gpt-4o"
 
     def test_semconv_version_malformed_schema_url(self):
         attrs = {OTEL_SCHEMA_URL: "not-a-real-schema-url"}
         result = extract_extended_model_info_from_attrs(attrs)
-        assert result["semconv_version"] == "unknown"
+        assert result["semconv_version"] is None
 
 
 # ---------------------------------------------------------------------------
