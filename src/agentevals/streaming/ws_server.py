@@ -695,7 +695,7 @@ class StreamingTraceManager:
                 - modelInfo: Model metadata (model name, tokens, etc.)
         """
         try:
-            temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+            temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8")
 
             has_genai_spans = any(
                 span.get("attributes", [])
