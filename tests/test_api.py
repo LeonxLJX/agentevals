@@ -12,6 +12,7 @@ import json
 import os
 import re
 import tempfile
+import urllib.parse
 import zipfile
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -32,6 +33,7 @@ from agentevals.api.models import (
 from agentevals.api.routes import _camel_keys, router
 from agentevals.api.streaming_routes import streaming_router
 from agentevals.runner import MetricResult, RunResult, TraceResult
+from agentevals.streaming.exports import EXPORT_DIR
 from agentevals.streaming.session import TraceSession
 
 # ---------------------------------------------------------------------------
@@ -256,6 +258,38 @@ def _capturing_run_eval(captured: dict):
         return _make_run_result()
 
     return _side_effect
+
+
+def _capturing_paths(captured: dict):
+    """Record the on-disk upload paths the route hands to ``run_evaluation``.
+
+    The path traversal fix lives in how the route names the saved file, so the
+    boundary that proves it is exactly the ``EvalRunConfig`` the evaluator receives.
+    Existence is captured at call time, before the route's ``finally`` cleans the temp dir.
+    """
+
+    def _side_effect(cfg, *args, **kwargs):
+        captured["trace_files"] = list(cfg.trace_files)
+        captured["eval_set_file"] = cfg.eval_set_file
+        captured["existed"] = {p: os.path.exists(p) for p in cfg.trace_files}
+        return _make_run_result()
+
+    return _side_effect
+
+
+_UI_INDEX = "<!doctype html><title>agentevals-ui-index-sentinel</title>"
+_UI_ASSET = "export const marker = 'ui-asset-sentinel';"
+
+
+def _make_ui_client(static_dir, monkeypatch) -> TestClient:
+    """Build the real app over a throwaway static dir so the SPA fallback is exercised, not copied."""
+    from agentevals.api.app import create_app
+
+    monkeypatch.delenv("AGENTEVALS_HEADLESS", raising=False)
+    (static_dir / "assets").mkdir(parents=True, exist_ok=True)
+    (static_dir / "index.html").write_text(_UI_INDEX)
+    (static_dir / "assets" / "app.js").write_text(_UI_ASSET)
+    return TestClient(create_app(static_dir=static_dir))
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +653,54 @@ class TestEvaluateTraces:
         assert "Could not resolve credentialRefs" in resp.json()["detail"]
         mock_eval.assert_not_called()
 
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_sanitizes_traversal_trace_filename(self, mock_eval):
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_paths(captured)
+        resp = self.client.post(
+            "/api/evaluate",
+            files={"trace_files": ("../../outside.json", io.BytesIO(_make_trace_json()))},
+            data={"config": _eval_config_json()},
+        )
+        _assert_envelope(resp)
+        saved = captured["trace_files"][0]
+        assert os.path.basename(saved) == "0_outside.json"
+        assert ".." not in saved
+        assert captured["existed"][saved] is True
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_sanitizes_traversal_eval_set_filename(self, mock_eval):
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_paths(captured)
+        resp = self.client.post(
+            "/api/evaluate",
+            files={
+                "trace_files": ("trace.json", io.BytesIO(_make_trace_json())),
+                "eval_set_file": ("../../outside.json", io.BytesIO(_make_eval_set_json())),
+            },
+            data={"config": _eval_config_json()},
+        )
+        _assert_envelope(resp)
+        eval_set = captured["eval_set_file"]
+        assert os.path.basename(eval_set) == "evalset_outside.json"
+        assert ".." not in eval_set
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    def test_evaluate_duplicate_filenames_do_not_clobber(self, mock_eval):
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_paths(captured)
+        resp = self.client.post(
+            "/api/evaluate",
+            files=[
+                ("trace_files", ("same.json", io.BytesIO(_make_trace_json()))),
+                ("trace_files", ("same.json", io.BytesIO(_make_trace_json()))),
+            ],
+            data={"config": _eval_config_json()},
+        )
+        _assert_envelope(resp)
+        names = [os.path.basename(p) for p in captured["trace_files"]]
+        assert names == ["0_same.json", "1_same.json"]
+
 
 # ---------------------------------------------------------------------------
 # POST /api/evaluate/stream (SSE)
@@ -709,6 +791,27 @@ class TestEvaluateStream:
         assert resp.status_code == 200
         assert '"error"' in resp.text
         assert "credentialRefs" in resp.text
+
+    @patch("agentevals.api.routes.run_evaluation", new_callable=AsyncMock)
+    @patch("agentevals.api.routes.load_traces")
+    def test_stream_sanitizes_traversal_filenames(self, mock_load_traces, mock_eval):
+        mock_load_traces.return_value = []
+        captured: dict = {}
+        mock_eval.side_effect = _capturing_paths(captured)
+        resp = self.client.post(
+            "/api/evaluate/stream",
+            files={
+                "trace_files": ("../../outside.json", io.BytesIO(_make_trace_json())),
+                "eval_set_file": ("../../outside.json", io.BytesIO(_make_eval_set_json())),
+            },
+            data={"config": _eval_config_json()},
+        )
+        assert '"done"' in resp.text
+        saved = captured["trace_files"][0]
+        assert os.path.basename(saved) == "0_outside.json"
+        assert ".." not in saved
+        assert os.path.basename(captured["eval_set_file"]) == "evalset_outside.json"
+        assert ".." not in captured["eval_set_file"]
 
 
 # ---------------------------------------------------------------------------
@@ -1318,36 +1421,136 @@ class TestStreamingPrepareEvaluation:
 # ---------------------------------------------------------------------------
 
 
+# A benign file placed outside the export directory. Its content token must
+# never appear in a download response; if it does, containment leaked.
+_OUT_OF_SCOPE_NAME = "out_of_scope_ref.txt"
+_OUT_OF_SCOPE_TOKEN = "out-of-scope-marker-a1b2c3"
+
+
 class TestStreamingDownload:
     @classmethod
     def setup_class(cls):
         cls.mgr = _make_trace_manager()
         cls.app = _make_live_app(cls.mgr)
 
-    def test_download_missing(self):
-        client = TestClient(self.app)
-        resp = client.get("/api/streaming/download/nonexistent_file_abc123.json")
-        assert resp.status_code == 404
+    def test_happy_path_downloads_byte_for_byte(self):
+        payload = b'{"marker":"in-scope","value":123}\n'
+        target = EXPORT_DIR / "happy_download.json"
+        target.write_bytes(payload)
+        try:
+            client = TestClient(self.app)
+            resp = client.get("/api/streaming/download/happy_download.json")
+            assert resp.status_code == 200
+            assert resp.content == payload
+        finally:
+            target.unlink(missing_ok=True)
 
-    def test_download_success(self):
+    def test_file_in_shared_temp_root_not_downloadable(self):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, dir=tempfile.gettempdir(), encoding="utf-8"
         ) as f:
-            f.write('{"test": true}')
+            f.write(_OUT_OF_SCOPE_TOKEN)
             fname = os.path.basename(f.name)
-
         try:
             client = TestClient(self.app)
             resp = client.get(f"/api/streaming/download/{fname}")
-            assert resp.status_code == 200
-            assert resp.json() == {"test": True}
+            assert resp.status_code == 404
+            assert _OUT_OF_SCOPE_TOKEN not in resp.text
         finally:
             os.unlink(os.path.join(tempfile.gettempdir(), fname))
 
-    def test_download_path_traversal(self):
+    def test_missing_bare_name_returns_404(self):
         client = TestClient(self.app)
-        resp = client.get("/api/streaming/download/..%2F..%2Fetc%2Fpasswd")
-        assert resp.status_code in (400, 404)
+        resp = client.get("/api/streaming/download/definitely_absent_file.json")
+        assert resp.status_code == 404
+
+    def test_non_bare_filenames_are_rejected_without_leaking(self):
+        sentinel = os.path.join(tempfile.gettempdir(), _OUT_OF_SCOPE_NAME)
+        with open(sentinel, "w", encoding="utf-8") as f:
+            f.write(_OUT_OF_SCOPE_TOKEN)
+
+        abs_encoded = urllib.parse.quote(sentinel, safe="")
+        payloads = [
+            f"../{_OUT_OF_SCOPE_NAME}",
+            f"..%2f..%2f{_OUT_OF_SCOPE_NAME}",
+            abs_encoded,
+            "..",
+            ".",
+        ]
+        try:
+            client = TestClient(self.app)
+            for payload in payloads:
+                resp = client.get(f"/api/streaming/download/{payload}")
+                assert resp.status_code in (400, 404), payload
+                assert _OUT_OF_SCOPE_TOKEN not in resp.text, payload
+        finally:
+            os.unlink(sentinel)
+
+    def test_symlink_escape_is_blocked(self):
+        sentinel = os.path.join(tempfile.gettempdir(), _OUT_OF_SCOPE_NAME)
+        with open(sentinel, "w", encoding="utf-8") as f:
+            f.write(_OUT_OF_SCOPE_TOKEN)
+
+        link = EXPORT_DIR / "linked.json"
+        link.unlink(missing_ok=True)
+        os.symlink(sentinel, link)
+        try:
+            client = TestClient(self.app)
+            resp = client.get("/api/streaming/download/linked.json")
+            assert resp.status_code == 404
+            assert _OUT_OF_SCOPE_TOKEN not in resp.text
+        finally:
+            link.unlink(missing_ok=True)
+            os.unlink(sentinel)
+
+    def test_containment_is_checked_before_existence(self):
+        # A symlink resolving outside the export dir must be indistinguishable
+        # from a plain missing file: same status and same body, so the endpoint
+        # cannot be used to probe whether out-of-scope paths exist.
+        sentinel = os.path.join(tempfile.gettempdir(), _OUT_OF_SCOPE_NAME)
+        with open(sentinel, "w", encoding="utf-8") as f:
+            f.write(_OUT_OF_SCOPE_TOKEN)
+
+        link = EXPORT_DIR / "probe.json"
+        link.unlink(missing_ok=True)
+        os.symlink(sentinel, link)
+        try:
+            client = TestClient(self.app)
+            out_of_scope = client.get("/api/streaming/download/probe.json")
+            missing = client.get("/api/streaming/download/absent_probe.json")
+            assert out_of_scope.status_code == missing.status_code == 404
+            assert out_of_scope.json() == missing.json()
+        finally:
+            link.unlink(missing_ok=True)
+            os.unlink(sentinel)
+
+    @patch("agentevals.api.streaming_routes._do_create_eval_set", new_callable=AsyncMock)
+    def test_prepared_files_download_byte_for_byte(self, mock_create_eval):
+        self.mgr.sessions.clear()
+        self.mgr.sessions["golden"] = _make_session("golden", "tg")
+        self.mgr.sessions["s1"] = _make_session("s1", "t1", spans=[{"spanId": "sp1"}])
+
+        mock_create_eval.return_value = StandardResponse(
+            data=CreateEvalSetData(
+                eval_set={"eval_set_id": "e1", "eval_cases": []},
+                num_invocations=1,
+            )
+        )
+
+        client = TestClient(self.app)
+        body = _assert_envelope(
+            client.post(
+                "/api/streaming/prepare-evaluation",
+                json={"golden_session_id": "golden", "session_ids": ["s1"]},
+            )
+        )
+
+        for url in [body["data"]["evalSetUrl"], *body["data"]["traceUrls"]]:
+            assert url.startswith("/api/streaming/download/")
+            on_disk = (EXPORT_DIR / url.rsplit("/", 1)[-1]).read_bytes()
+            resp = client.get(url)
+            assert resp.status_code == 200
+            assert resp.content == on_disk
 
 
 # ---------------------------------------------------------------------------
@@ -1666,3 +1869,58 @@ class TestConvertAutoDetect:
         )
         assert resp.status_code == 400
         assert "Could not detect trace format" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# SPA fallback path containment (static file serving)
+# ---------------------------------------------------------------------------
+
+
+class TestSpaFallbackContainment:
+    def test_serves_index_at_root(self, tmp_path, monkeypatch):
+        client = _make_ui_client(tmp_path, monkeypatch)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "agentevals-ui-index-sentinel" in resp.text
+
+    def test_serves_real_asset(self, tmp_path, monkeypatch):
+        client = _make_ui_client(tmp_path, monkeypatch)
+        assert "ui-asset-sentinel" in client.get("/assets/app.js").text
+
+    def test_unknown_route_falls_back_to_index(self, tmp_path, monkeypatch):
+        client = _make_ui_client(tmp_path, monkeypatch)
+        assert "agentevals-ui-index-sentinel" in client.get("/some/client/route").text
+
+    def test_absolute_path_join_does_not_escape(self, tmp_path, monkeypatch):
+        client = _make_ui_client(tmp_path, monkeypatch)
+        outside = tmp_path.parent / "outside_root.txt"
+        outside.write_text("outside-static-root")
+        try:
+            resp = client.get("http://testserver/" + str(outside))
+            assert "outside-static-root" not in resp.text
+            assert "agentevals-ui-index-sentinel" in resp.text
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_encoded_dotdot_does_not_escape(self, tmp_path, monkeypatch):
+        client = _make_ui_client(tmp_path, monkeypatch)
+        outside = tmp_path.parent / "outside_root.txt"
+        outside.write_text("outside-static-root")
+        try:
+            resp = client.get("/%2e%2e/outside_root.txt")
+            assert "outside-static-root" not in resp.text
+            assert "agentevals-ui-index-sentinel" in resp.text
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_symlink_target_outside_root_not_followed(self, tmp_path, monkeypatch):
+        outside = tmp_path.parent / "outside_symlink_target.txt"
+        outside.write_text("outside-static-root")
+        client = _make_ui_client(tmp_path, monkeypatch)
+        (tmp_path / "escape_link").symlink_to(outside)
+        try:
+            resp = client.get("/escape_link")
+            assert "outside-static-root" not in resp.text
+            assert "agentevals-ui-index-sentinel" in resp.text
+        finally:
+            outside.unlink(missing_ok=True)

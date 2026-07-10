@@ -119,6 +119,15 @@ def _camel_keys(obj: Any) -> Any:
     return obj
 
 
+def _safe_upload_path(temp_dir: str, filename: str, idx: int = 0) -> str:
+    """Build a save path inside ``temp_dir`` from a client-controlled filename.
+
+    ``basename`` drops any directory components, and the ``idx`` prefix keeps
+    same-named uploads from clobbering each other.
+    """
+    return os.path.join(temp_dir, f"{idx}_{os.path.basename(filename)}")
+
+
 def _load_eval_set_dict(path: str | None) -> dict | None:
     """Read the uploaded eval set file back into a dict for persistence.
 
@@ -361,7 +370,7 @@ async def validate_eval_set(
 ):
     temp_dir = tempfile.mkdtemp()
     try:
-        eval_set_path = os.path.join(temp_dir, eval_set_file.filename or "eval_set.json")
+        eval_set_path = os.path.join(temp_dir, f"evalset_{os.path.basename(eval_set_file.filename or 'eval_set.json')}")
         with open(eval_set_path, "wb") as f:  # noqa: ASYNC230
             content = await eval_set_file.read()
             f.write(content)
@@ -433,8 +442,7 @@ async def convert_trace_files(
                     detail=f"Invalid file extension for {original}. Only .json and .jsonl files are allowed.",
                 )
 
-            safe_name = f"{idx}_{os.path.basename(original)}"
-            trace_path = os.path.join(temp_dir, safe_name)
+            trace_path = _safe_upload_path(temp_dir, original, idx)
             with open(trace_path, "wb") as f:  # noqa: ASYNC230
                 content = await trace_file.read()
 
@@ -548,7 +556,7 @@ async def evaluate_traces(
             raise HTTPException(status_code=400, detail=f"Invalid credentialRefs: {exc}") from exc
 
         trace_paths = []
-        for trace_file in trace_files:
+        for idx, trace_file in enumerate(trace_files):
             if not trace_file.filename:
                 continue
 
@@ -558,7 +566,7 @@ async def evaluate_traces(
                     detail=f"Invalid file extension for {trace_file.filename}. Only .json and .jsonl files are allowed.",
                 )
 
-            trace_path = os.path.join(temp_dir, trace_file.filename)
+            trace_path = _safe_upload_path(temp_dir, trace_file.filename, idx)
             with open(trace_path, "wb") as f:  # noqa: ASYNC230
                 content = await trace_file.read()
 
@@ -587,7 +595,7 @@ async def evaluate_traces(
                     detail="Invalid file extension for eval set. Only .json files are allowed.",
                 )
 
-            eval_set_path = os.path.join(temp_dir, eval_set_file.filename)
+            eval_set_path = os.path.join(temp_dir, f"evalset_{os.path.basename(eval_set_file.filename)}")
             with open(eval_set_path, "wb") as f:  # noqa: ASYNC230
                 content = await eval_set_file.read()
                 if len(content) > 10 * 1024 * 1024:
@@ -669,7 +677,7 @@ async def evaluate_traces_stream(
                 return
 
             trace_paths = []
-            for trace_file in trace_files:
+            for idx, trace_file in enumerate(trace_files):
                 if not trace_file.filename:
                     continue
 
@@ -677,7 +685,7 @@ async def evaluate_traces_stream(
                     yield f"data: {SSEErrorEvent(error=f'Invalid file extension for {trace_file.filename}').model_dump_json(by_alias=True)}\n\n"
                     return
 
-                trace_path = os.path.join(temp_dir, trace_file.filename)
+                trace_path = _safe_upload_path(temp_dir, trace_file.filename, idx)
                 with open(trace_path, "wb") as f:  # noqa: ASYNC230
                     content = await trace_file.read()
 
@@ -700,7 +708,7 @@ async def evaluate_traces_stream(
                     yield f"data: {SSEErrorEvent(error='Invalid file extension for eval set').model_dump_json(by_alias=True)}\n\n"
                     return
 
-                eval_set_path = os.path.join(temp_dir, eval_set_file.filename)
+                eval_set_path = os.path.join(temp_dir, f"evalset_{os.path.basename(eval_set_file.filename)}")
                 with open(eval_set_path, "wb") as f:  # noqa: ASYNC230
                     content = await eval_set_file.read()
                     if len(content) > 10 * 1024 * 1024:

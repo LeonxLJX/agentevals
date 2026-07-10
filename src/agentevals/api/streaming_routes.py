@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,6 +16,7 @@ from ..config import BuiltinMetricDef, EvalParams, EvalRunConfig, EvaluatorDef
 from ..converter import convert_traces
 from ..loader.otlp import OtlpJsonLoader
 from ..runner import RunResult, run_evaluation
+from ..streaming.exports import EXPORT_DIR, export_name
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL
 from .dependencies import require_trace_manager
 from .models import (
@@ -225,7 +227,9 @@ async def evaluate_sessions(
 
         import tempfile
 
-        eval_set_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
+        eval_set_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, dir=str(EXPORT_DIR), encoding="utf-8"
+        )
         json.dump(eval_set_response.data.eval_set, eval_set_file)
         eval_set_file.close()
 
@@ -328,12 +332,7 @@ async def prepare_evaluation(
             manager,
         )
 
-        import os
-        import tempfile
-
-        temp_dir = tempfile.gettempdir()
-
-        eval_set_file = os.path.join(temp_dir, f"eval_set_{request.golden_session_id}.json")
+        eval_set_file = EXPORT_DIR / export_name(request.golden_session_id, prefix="eval_set_", suffix=".json")
         with open(eval_set_file, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             json.dump(eval_set_response.data.eval_set, f)
 
@@ -353,7 +352,7 @@ async def prepare_evaluation(
 
         return StandardResponse(
             data=PrepareEvaluationData(
-                eval_set_url=f"/api/streaming/download/{os.path.basename(eval_set_file)}",
+                eval_set_url=f"/api/streaming/download/{eval_set_file.name}",
                 trace_urls=[f"/api/streaming/download/{os.path.basename(tf['file_path'])}" for tf in trace_files],
                 num_traces=len(trace_files),
             )
@@ -368,20 +367,25 @@ async def prepare_evaluation(
 
 @streaming_router.get("/download/{filename}")
 async def download_file(filename: str):
-    """Download a prepared trace or eval set file."""
-    import os
-    import tempfile
+    """Download a prepared trace or eval set file from the export directory.
 
-    temp_dir = tempfile.gettempdir()
-    file_path = os.path.join(temp_dir, filename)
+    Only bare filenames are accepted, and the resolved path must stay inside
+    the export directory. Anything that resolves outside it returns the same
+    404 as a missing file.
+    """
+    if filename in {"", ".", ".."} or filename != os.path.basename(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
-    if not os.path.exists(file_path):  # noqa: ASYNC240
+    export_root = EXPORT_DIR.resolve()
+    candidate = (export_root / filename).resolve()
+
+    if not candidate.is_relative_to(export_root):
         raise HTTPException(status_code=404, detail="File not found")
 
-    if not file_path.startswith(temp_dir):
-        raise HTTPException(status_code=400, detail="Invalid file path")
+    if not candidate.is_file():  # noqa: ASYNC240
+        raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(file_path, media_type="application/json", filename=filename)
+    return FileResponse(candidate, media_type="application/json", filename=filename)
 
 
 @streaming_router.post("/get-trace", response_model=StandardResponse[GetTraceData])
