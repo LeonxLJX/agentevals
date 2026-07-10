@@ -141,6 +141,7 @@ def create_app(
     *,
     trace_manager: StreamingTraceManager | None = None,
     enable_streaming: bool = False,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     """Create the main agentevals API app."""
     app = FastAPI(
@@ -216,7 +217,8 @@ def create_app(
                 },
             )
 
-    static_dir = Path(__file__).parent.parent / "_static"
+    if static_dir is None:
+        static_dir = Path(__file__).parent.parent / "_static"
     has_ui = static_dir.is_dir() and (static_dir / "index.html").exists()
 
     if has_ui and not os.getenv("AGENTEVALS_HEADLESS"):
@@ -229,10 +231,12 @@ def create_app(
         async def root():
             return FileResponse(static_dir / "index.html")
 
+        static_root = static_dir.resolve()
+
         @app.get("/{path:path}")
         async def spa_fallback(path: str):
-            file_path = static_dir / path
-            if file_path.is_file():
+            file_path = (static_dir / path).resolve()
+            if file_path.is_relative_to(static_root) and file_path.is_file():
                 return FileResponse(file_path)
             return FileResponse(static_dir / "index.html")
 

@@ -30,6 +30,7 @@ from ..loader.base import Trace
 from ..loader.otlp import OtlpJsonLoader
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL, OTEL_SERVICE_NAME
 from ..utils.log_enrichment import enrich_spans_with_logs
+from .exports import EXPORT_DIR, export_name
 from .incremental_processor import IncrementalInvocationExtractor
 from .session import TraceSession
 
@@ -654,7 +655,7 @@ class StreamingTraceManager:
         Returns:
             Path to the temporary JSONL file containing the spans
         """
-        temp_file = Path(tempfile.gettempdir()) / f"agentevals_{session.session_id}.jsonl"
+        temp_file = EXPORT_DIR / export_name(session.session_id, prefix="agentevals_", suffix=".jsonl")
 
         enriched_spans = enrich_spans_with_logs(session.spans, session.logs, session.session_id)
 
