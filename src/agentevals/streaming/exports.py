@@ -10,16 +10,22 @@ the raw id, keeping download URLs independent of client-supplied identifiers.
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import hmac
 import secrets
+import shutil
 import tempfile
 from pathlib import Path
 
 EXPORT_DIR = Path(tempfile.mkdtemp(prefix="agentevals-exports-"))
 # mkdtemp already restricts the dir to the owner; set it explicitly so the
-# permission is guaranteed even if the creation call is ever changed.
+# permission holds even if the creation call is ever changed.
 EXPORT_DIR.chmod(0o700)
+
+# Best-effort removal on normal interpreter exit; an abrupt kill leaves the
+# directory for the OS temp reaper.
+atexit.register(shutil.rmtree, EXPORT_DIR, ignore_errors=True)
 
 _NAME_KEY = secrets.token_bytes(32)
 

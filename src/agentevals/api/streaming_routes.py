@@ -216,6 +216,7 @@ async def evaluate_sessions(
     if not golden_session:
         raise HTTPException(status_code=404, detail="Golden session not found")
 
+    eval_set_file = None
     try:
         eval_set_response = await _do_create_eval_set(
             CreateEvalSetRequest(
@@ -311,6 +312,14 @@ async def evaluate_sessions(
     except Exception as exc:
         logger.exception("Failed to evaluate sessions")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        # This eval set is consumed only by run_evaluation above and is never
+        # served for download, so remove it once evaluation completes.
+        if eval_set_file is not None:
+            try:
+                os.unlink(eval_set_file.name)
+            except OSError:
+                pass
 
 
 @streaming_router.post("/prepare-evaluation", response_model=StandardResponse[PrepareEvaluationData])

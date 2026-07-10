@@ -1421,8 +1421,6 @@ class TestStreamingPrepareEvaluation:
 # ---------------------------------------------------------------------------
 
 
-# A benign file placed outside the export directory. Its content token must
-# never appear in a download response; if it does, containment leaked.
 _OUT_OF_SCOPE_NAME = "out_of_scope_ref.txt"
 _OUT_OF_SCOPE_TOKEN = "out-of-scope-marker-a1b2c3"
 
@@ -1504,9 +1502,8 @@ class TestStreamingDownload:
             os.unlink(sentinel)
 
     def test_containment_is_checked_before_existence(self):
-        # A symlink resolving outside the export dir must be indistinguishable
-        # from a plain missing file: same status and same body, so the endpoint
-        # cannot be used to probe whether out-of-scope paths exist.
+        # An out-of-scope path and a missing name must return byte-identical
+        # responses, so containment is resolved before existence is checked.
         sentinel = os.path.join(tempfile.gettempdir(), _OUT_OF_SCOPE_NAME)
         with open(sentinel, "w", encoding="utf-8") as f:
             f.write(_OUT_OF_SCOPE_TOKEN)
