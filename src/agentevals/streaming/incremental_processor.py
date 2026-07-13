@@ -36,14 +36,18 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_ts(raw_ts) -> float:
-    """Normalize a nanosecond timestamp (string or int) to seconds."""
+    """Normalize a contemporary Unix timestamp by inferring its unit from magnitude."""
     try:
-        ns = int(raw_ts)
+        timestamp = int(raw_ts)
     except (TypeError, ValueError):
         return 0.0
-    if ns > 1e15:
-        return ns / 1e9
-    return float(ns)
+    if timestamp >= 1e17:
+        return timestamp / 1e9
+    if timestamp >= 1e14:
+        return timestamp / 1e6
+    if timestamp >= 1e11:
+        return timestamp / 1e3
+    return float(timestamp)
 
 
 class IncrementalInvocationExtractor:
