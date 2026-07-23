@@ -81,3 +81,6 @@ ADK_INVOCATION_ID = "gcp.vertex.agent.invocation_id"
 GENAI_ATTRIBUTE_ALIASES: dict[str, list[str]] = {
     OTEL_GENAI_PROVIDER_NAME: [OTEL_GENAI_SYSTEM],
 }
+
+# agentevals custom attributes (repository-specific, outside OTel semconv)
+AGENTEVALS_SESSION_ID = "agentevals.session.id"
