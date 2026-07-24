@@ -139,6 +139,22 @@ class TestPerSpanEnrichment:
         msgs_s2 = _get_injected_attr(result[1], "gen_ai.input.messages")
         assert msgs_s2 == [{"role": "user", "content": "question 2"}]
 
+    def test_agent_name_preserved_with_session_id(self):
+        """Regression: real gen_ai.agent.name attr must survive enrichment,
+        session_id lands in its own attr, doesn't clobber it."""
+        span = _make_span(
+            "s1",
+            attrs=[{"key": "gen_ai.agent.name", "value": {"stringValue": "roll_die_agent"}}],
+        )
+        logs = [_make_log("gen_ai.user.message", {"content": "hi"}, span_id="s1")]
+        result = enrich_spans_with_logs([span], logs, session_id="sess-123")
+
+        agent_name = _get_injected_attr(result[0], "gen_ai.agent.name", parse_json=False)
+        assert agent_name == "roll_die_agent"
+
+        session_attr = _get_injected_attr(result[0], "agentevals.session_id", parse_json=False)
+        assert session_attr == "sess-123"
+
     def test_span_without_logs_not_enriched(self):
         spans = [_make_span("s1"), _make_span("s2")]
         logs = [
