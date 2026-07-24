@@ -28,7 +28,7 @@ def enrich_spans_with_logs(spans: list[dict], logs: list[dict], session_id: str 
     Args:
         spans: List of OTLP span dictionaries
         logs: List of GenAI log event dictionaries
-        session_id: Optional session ID to add as the agentevals.session.id attribute
+        session_id: Optional session ID to add as the agentevals.session_id attribute
 
     Returns:
         List of enriched span dictionaries with message attributes added
@@ -91,7 +91,7 @@ def _extract_messages_from_logs(
 def _append_session_id(attrs: list[dict], session_id: str | None) -> None:
     """Append the session ID attribute to *attrs* in place, if present.
 
-    Written to the custom ``agentevals.session.id`` attribute rather than
+    Written to the custom ``agentevals.session_id`` attribute rather than
     ``gen_ai.agent.name`` so real agent names (from the SDK or OTLP) are
     never overwritten.
     """

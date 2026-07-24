@@ -83,4 +83,4 @@ GENAI_ATTRIBUTE_ALIASES: dict[str, list[str]] = {
 }
 
 # agentevals custom attributes (repository-specific, outside OTel semconv)
-AGENTEVALS_SESSION_ID = "agentevals.session.id"
+AGENTEVALS_SESSION_ID = "agentevals.session_id"

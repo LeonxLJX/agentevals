@@ -84,7 +84,7 @@ class TestBroadcastEnrichment:
         logs = [_make_log("gen_ai.user.message", {"content": "hi"})]
         result = enrich_spans_with_logs(spans, logs, session_id="my-session")
 
-        session_attr = _get_injected_attr(result[0], "agentevals.session.id", parse_json=False)
+        session_attr = _get_injected_attr(result[0], "agentevals.session_id", parse_json=False)
         assert session_attr == "my-session"
 
     def test_choice_extracts_nested_content(self):
@@ -156,8 +156,8 @@ class TestPerSpanEnrichment:
         ]
         result = enrich_spans_with_logs(spans, logs, session_id="test")
 
-        assert _get_injected_attr(result[0], "agentevals.session.id", parse_json=False) == "test"
-        assert _get_injected_attr(result[1], "agentevals.session.id", parse_json=False) == "test"
+        assert _get_injected_attr(result[0], "agentevals.session_id", parse_json=False) == "test"
+        assert _get_injected_attr(result[1], "agentevals.session_id", parse_json=False) == "test"
 
     def test_tool_calls_in_assistant_message(self):
         spans = [_make_span("s1")]
