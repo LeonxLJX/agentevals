@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 
 from ..trace_attrs import (
-    OTEL_GENAI_AGENT_NAME,
+    AGENTEVALS_SESSION_ID,
     OTEL_GENAI_INPUT_MESSAGES,
     OTEL_GENAI_OUTPUT_MESSAGES,
 )
@@ -28,7 +28,7 @@ def enrich_spans_with_logs(spans: list[dict], logs: list[dict], session_id: str 
     Args:
         spans: List of OTLP span dictionaries
         logs: List of GenAI log event dictionaries
-        session_id: Optional session ID to add as agent.name attribute
+        session_id: Optional session ID to add as the agentevals.session_id attribute
 
     Returns:
         List of enriched span dictionaries with message attributes added
@@ -88,6 +88,22 @@ def _extract_messages_from_logs(
     return input_messages, output_messages
 
 
+def _append_session_id(attrs: list[dict], session_id: str | None) -> None:
+    """Append the session ID attribute to *attrs* in place, if present.
+
+    Written to the custom ``agentevals.session_id`` attribute rather than
+    ``gen_ai.agent.name`` so real agent names (from the SDK or OTLP) are
+    never overwritten.
+    """
+    if session_id:
+        attrs.append(
+            {
+                "key": AGENTEVALS_SESSION_ID,
+                "value": {"stringValue": session_id},
+            }
+        )
+
+
 def _inject_messages(
     span: dict,
     input_messages: list[dict],
@@ -113,13 +129,7 @@ def _inject_messages(
                 "value": {"stringValue": json.dumps(output_messages)},
             }
         )
-    if session_id:
-        attrs.append(
-            {
-                "key": OTEL_GENAI_AGENT_NAME,
-                "value": {"stringValue": session_id},
-            }
-        )
+    _append_session_id(attrs, session_id)
 
     return span_copy
 
@@ -148,12 +158,7 @@ def _enrich_per_span(
             span_copy = span.copy()
             if session_id:
                 attrs = list(span_copy.get("attributes", []))
-                attrs.append(
-                    {
-                        "key": OTEL_GENAI_AGENT_NAME,
-                        "value": {"stringValue": session_id},
-                    }
-                )
+                _append_session_id(attrs, session_id)
                 span_copy["attributes"] = attrs
             enriched.append(span_copy)
 
