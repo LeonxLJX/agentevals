@@ -400,5 +400,7 @@ async def test_evaluate_sessions_posts_builtin_evaluator_overrides(monkeypatch):
             "threshold": 0.9,
             "judgeModel": "gemini-2.5-flash",
             "trajectoryMatchType": "IN_ORDER",
+            "credentialRef": None,
+            "judgeBaseUrl": None,
         }
     ]

@@ -29,6 +29,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Verify uv.lock matches pyproject.toml
+        run: uv lock --check
+
       - name: Install dependencies
         run: |
           uv venv
@@ -62,7 +65,7 @@ jobs:
         run: |
           uv venv --python ${{ matrix.python-version }}
           uv pip install setuptools
-          uv sync --dev --python ${{ matrix.python-version }}
+          uv sync --dev --all-extras --frozen --python ${{ matrix.python-version }}
 
       - name: Run tests
         run: uv run pytest -m "not integration and not e2e" --tb=short -q
