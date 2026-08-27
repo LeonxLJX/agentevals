@@ -6,10 +6,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "CI"
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "CI"]
     commit-message:
       prefix: "chore(deps):"
     cooldown:
@@ -17,25 +15,18 @@ updates:
     groups:
       github-actions:
         applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+        patterns: ["*"]
       github-actions-security:
         applies-to: security-updates
-        patterns:
-          - "*"
+        patterns: ["*"]
 
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "CLI"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "CLI"]
     commit-message:
       prefix: "chore(deps):"
       prefix-development: "chore(deps-dev):"
@@ -49,91 +40,57 @@ updates:
           - "google-adk"
           - "google-genai"
           - "google-auth*"
-        update-types:
-          - "minor"
-          - "patch"
-      python-development:
+      python:
         applies-to: version-updates
-        dependency-type: "development"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-      python-minor-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+        patterns: ["*"]
       python-security:
         applies-to: security-updates
-        patterns:
-          - "*"
+        patterns: ["*"]
 
   - package-ecosystem: "npm"
     directory: "/ui"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "UI"
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "UI"]
     commit-message:
       prefix: "chore(deps):"
       prefix-development: "chore(deps-dev):"
     cooldown:
       default-days: 5
+      semver-major-days: 14
     ignore:
-      # react/vite/antd majors require migrations.
-      - dependency-name: "*"
-        update-types:
-          - "version-update:semver-major"
+      # Majors need a migration pass; bump these by hand.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "antd"
+        update-types: ["version-update:semver-major"]
     groups:
-      npm-dev-tooling:
+      npm:
         applies-to: version-updates
-        dependency-type: "development"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-      npm-runtime:
-        applies-to: version-updates
-        dependency-type: "production"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+        patterns: ["*"]
       npm-security:
         applies-to: security-updates
-        patterns:
-          - "*"
+        patterns: ["*"]
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
+    open-pull-requests-limit: 1
+    labels: ["dependencies"]
     commit-message:
       prefix: "chore(deps):"
-    ignore:
-      - dependency-name: "*"
-        update-types:
-          - "version-update:semver-major"
     cooldown:
       default-days: 5
+      semver-major-days: 14
     groups:
       docker-base-images:
         applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+        patterns: ["*"]
