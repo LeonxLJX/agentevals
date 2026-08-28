@@ -26,7 +26,7 @@ from ..extraction import (
     is_llm_span,
     parse_tool_response_content,
 )
-from ..loader.base import Trace
+from ..loader.base import Span, Trace
 from ..loader.otlp import OtlpJsonLoader
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL, OTEL_SERVICE_NAME
 from ..utils.log_enrichment import enrich_spans_with_logs
@@ -782,7 +782,12 @@ class StreamingTraceManager:
 
                     model_info = {}
                     if trace:
-                        model_info = self._extract_model_info_from_trace(trace, inv_idx)
+                        inv_llm_spans = (
+                            conv_result.invocation_llm_spans[inv_idx]
+                            if inv_idx < len(conv_result.invocation_llm_spans)
+                            else []
+                        )
+                        model_info = self._extract_model_info_from_llm_spans(inv_llm_spans)
 
                     invocations_data.append(
                         {
@@ -805,8 +810,13 @@ class StreamingTraceManager:
             logger.exception("Failed to extract invocations")
             return []
 
-    def _extract_model_info_from_trace(self, trace: Trace, invocation_idx: int) -> dict:
-        """Extract model information from LLM spans in the trace."""
+    def _extract_model_info_from_llm_spans(self, llm_spans: list[Span]) -> dict:
+        """Extract model information from the LLM spans of a single invocation.
+
+        Aggregates only the spans that belong to the invocation, so each
+        invocation shows its own token counts / models / providers instead of
+        the whole-session aggregate.
+        """
         model_info: dict[str, Any] = {}
         models_used: set[str] = set()
         total_input_tokens = 0
@@ -820,10 +830,10 @@ class StreamingTraceManager:
         first_temperature: float | None = None
         first_max_tokens: int | None = None
 
-        llm_spans = [s for s in trace.all_spans if is_llm_span(s) or "call_llm" in s.operation_name]
-        llm_spans.sort(key=lambda s: s.start_time)
+        spans = [s for s in llm_spans if is_llm_span(s) or "call_llm" in s.operation_name]
+        spans.sort(key=lambda s: s.start_time)
 
-        for span in llm_spans:
+        for span in spans:
             in_toks, out_toks, model = extract_token_usage_from_attrs(span.tags)
             if model and model != "unknown":
                 models_used.add(model)

@@ -45,6 +45,10 @@ class ConversionResult:
     trace_id: str
     invocations: list[Invocation] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # LLM spans each invocation was built from, parallel to ``invocations``.
+    # Kept so callers can aggregate per-invocation model info (token counts,
+    # models, providers) without walking the whole trace for every invocation.
+    invocation_llm_spans: list[list[Span]] = field(default_factory=list)
 
 
 def convert_trace(trace: Trace, format: str | None = None) -> ConversionResult:
@@ -87,8 +91,9 @@ def _convert_adk_trace(trace: Trace) -> ConversionResult:
 
     for invoke_span in invoke_spans:
         try:
-            invocation = _convert_invoke_span(invoke_span)
+            invocation, llm_spans = _convert_invoke_span(invoke_span)
             result.invocations.append(invocation)
+            result.invocation_llm_spans.append(llm_spans)
         except Exception as exc:
             msg = f"Trace {trace.trace_id}: failed to convert invoke_agent span {invoke_span.span_id}: {exc}"
             logger.warning(msg)
@@ -127,7 +132,7 @@ def _find_adk_spans(trace: Trace, operation: str) -> list[Span]:
     return matches
 
 
-def _convert_invoke_span(invoke_span: Span) -> Invocation:
+def _convert_invoke_span(invoke_span: Span) -> tuple[Invocation, list[Span]]:
     llm_spans = find_adk_llm_spans_in(invoke_span)
     if not llm_spans:
         raise ValueError(
@@ -148,13 +153,15 @@ def _convert_invoke_span(invoke_span: Span) -> Invocation:
 
     invocation_id = invoke_span.get_tag(ADK_INVOCATION_ID, invoke_span.span_id)
 
-    return Invocation(
+    invocation = Invocation(
         invocation_id=invocation_id,
         user_content=user_content,
         final_response=final_response,
         intermediate_data=intermediate_data,
         creation_timestamp=invoke_span.start_time / 1_000_000.0,
     )
+
+    return invocation, llm_spans
 
 
 def _find_children_by_op(root: Span, op_prefix: str) -> list[Span]:
