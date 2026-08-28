@@ -23,10 +23,9 @@ from ..converter import convert_traces
 from ..extraction import (
     extract_extended_model_info_from_attrs,
     extract_token_usage_from_attrs,
-    is_llm_span,
     parse_tool_response_content,
 )
-from ..loader.base import Span, Trace
+from ..loader.base import Span
 from ..loader.otlp import OtlpJsonLoader
 from ..trace_attrs import OTEL_GENAI_INPUT_MESSAGES, OTEL_GENAI_REQUEST_MODEL, OTEL_SERVICE_NAME
 from ..utils.log_enrichment import enrich_spans_with_logs
@@ -745,8 +744,6 @@ class StreamingTraceManager:
                 if conv_result.warnings:
                     logger.warning("Conversion warnings: %s", conv_result.warnings)
 
-                trace = traces[trace_idx] if trace_idx < len(traces) else None
-
                 for inv_idx, inv in enumerate(conv_result.invocations):
                     user_text = ""
                     if inv.user_content and inv.user_content.parts:
@@ -781,13 +778,17 @@ class StreamingTraceManager:
                             )
 
                     model_info = {}
-                    if trace:
-                        inv_llm_spans = (
-                            conv_result.invocation_llm_spans[inv_idx]
-                            if inv_idx < len(conv_result.invocation_llm_spans)
-                            else []
+                    if inv_idx >= len(conv_result.invocation_llm_spans):
+                        logger.warning(
+                            "Index drift: invocation %d has no recorded LLM spans "
+                            "(%d recorded); reporting blank model info",
+                            inv_idx,
+                            len(conv_result.invocation_llm_spans),
                         )
-                        model_info = self._extract_model_info_from_llm_spans(inv_llm_spans)
+                        inv_llm_spans = []
+                    else:
+                        inv_llm_spans = conv_result.invocation_llm_spans[inv_idx]
+                    model_info = self._extract_model_info_from_llm_spans(inv_llm_spans)
 
                     invocations_data.append(
                         {
@@ -810,7 +811,8 @@ class StreamingTraceManager:
             logger.exception("Failed to extract invocations")
             return []
 
-    def _extract_model_info_from_llm_spans(self, llm_spans: list[Span]) -> dict:
+    @staticmethod
+    def _extract_model_info_from_llm_spans(llm_spans: list[Span]) -> dict:
         """Extract model information from the LLM spans of a single invocation.
 
         Aggregates only the spans that belong to the invocation, so each
@@ -830,7 +832,11 @@ class StreamingTraceManager:
         first_temperature: float | None = None
         first_max_tokens: int | None = None
 
-        spans = [s for s in llm_spans if is_llm_span(s) or "call_llm" in s.operation_name]
+        # The caller already hands over the invocation's own LLM spans, so no
+        # re-filtering is needed here. (Re-filtering would drop a provider
+        # `generate_content`-only trace to nothing even when usage metadata is
+        # present.)
+        spans = list(llm_spans)
         spans.sort(key=lambda s: s.start_time)
 
         for span in spans:

@@ -579,7 +579,7 @@ class TestAdkExtractorSpanFinding:
         ext = AdkExtractor()
         assert ext.find_llm_spans_in(root) == []
 
-    def test_find_llm_spans_in_prefers_call_llm_over_generate_content(self):
+    def test_find_llm_spans_in_returns_both_call_llm_and_generate_content(self):
         call_llm = _span(op="call_llm gemini", span_id="llm1", start_time=20)
         generate_content = _span(
             op="generate_content gemini",
@@ -589,7 +589,10 @@ class TestAdkExtractorSpanFinding:
         )
         root = _span(op="invoke_agent a", children=[generate_content, call_llm])
         ext = AdkExtractor()
-        assert [s.span_id for s in ext.find_llm_spans_in(root)] == ["llm1"]
+        # Both span kinds are returned (sorted by start time) so a provider
+        # generate_content span's request temperature / response model are not
+        # dropped from modelInfo when call_llm spans are also present.
+        assert [s.span_id for s in ext.find_llm_spans_in(root)] == ["llm2", "llm1"]
 
     def test_find_tool_spans_in(self):
         child_llm = _span(op="call_llm gemini", span_id="llm1")
