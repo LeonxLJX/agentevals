@@ -740,7 +740,7 @@ class StreamingTraceManager:
 
             invocations_data = []
 
-            for trace_idx, conv_result in enumerate(conversion_results):
+            for _trace_idx, conv_result in enumerate(conversion_results):
                 if conv_result.warnings:
                     logger.warning("Conversion warnings: %s", conv_result.warnings)
 

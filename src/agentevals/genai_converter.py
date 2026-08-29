@@ -104,7 +104,7 @@ def convert_genai_trace(trace: Trace) -> ConversionResult:
                         # the first turn (keeping the session total honest) and
                         # leave the remaining turns empty to avoid double counting.
                         per_turn_spans = [list(llm_root_spans)] + [[] for _ in turns[1:]]
-                    for turn, turn_spans in zip(turns, per_turn_spans):
+                    for turn, turn_spans in zip(turns, per_turn_spans, strict=True):
                         result.invocations.append(_turn_to_invocation(turn))
                         result.invocation_llm_spans.append(turn_spans)
                 except Exception as exc:
@@ -319,8 +319,7 @@ def _deduplicate_invocations(
     kept_positions = [i for i in range(len(invocations)) if i in keep]
     position_of_kept = {i: pos for pos, i in enumerate(kept_positions)}
     merged: list[list[Span]] = [
-        list(llm_spans[i]) if i < len(llm_spans) and llm_spans[i] else []
-        for i in kept_positions
+        list(llm_spans[i]) if i < len(llm_spans) and llm_spans[i] else [] for i in kept_positions
     ]
     for i, inv in enumerate(invocations):
         if i in keep or i >= len(llm_spans) or not llm_spans[i]:

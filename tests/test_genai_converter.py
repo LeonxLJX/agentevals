@@ -1016,4 +1016,3 @@ class TestCumulativeHistoryToolCalls:
         assert len(result.invocations) == 1
         tool_names = [t.name for t in result.invocations[0].intermediate_data.tool_uses]
         assert tool_names == ["get_weather"]
-

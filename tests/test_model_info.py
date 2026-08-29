@@ -16,7 +16,9 @@ from agentevals.streaming.session import TraceSession
 from agentevals.streaming.ws_server import StreamingTraceManager
 
 
-def _adk_llm_span(span_id: str, model: str, input_tokens: int, output_tokens: int, start_time: int, parent: str = "invoke") -> Span:
+def _adk_llm_span(
+    span_id: str, model: str, input_tokens: int, output_tokens: int, start_time: int, parent: str = "invoke"
+) -> Span:
     """Build an ADK call_llm span with distinct usage metadata and user text."""
     return Span(
         trace_id="t1",
@@ -120,7 +122,9 @@ def _otlp_span(
     return span
 
 
-def _adk_llm_otlp_span(span_id: str, model: str, input_tokens: int, output_tokens: int, start_ns: int, parent: str) -> dict:
+def _adk_llm_otlp_span(
+    span_id: str, model: str, input_tokens: int, output_tokens: int, start_ns: int, parent: str
+) -> dict:
     return _otlp_span(
         span_id,
         "call_llm",
@@ -167,11 +171,17 @@ class TestPerInvocationSpans:
         manager = StreamingTraceManager()
 
         invoke1 = _otlp_span(
-            "invoke1", "invoke_agent agent_a", 1_000_000_000, 21_000_000_000,
+            "invoke1",
+            "invoke_agent agent_a",
+            1_000_000_000,
+            21_000_000_000,
             {"otel.scope.name": "gcp.vertex.agent", "gen_ai.operation.name": "invoke_agent"},
         )
         invoke2 = _otlp_span(
-            "invoke2", "invoke_agent agent_b", 30_000_000_000, 50_000_000_000,
+            "invoke2",
+            "invoke_agent agent_b",
+            30_000_000_000,
+            50_000_000_000,
             {"otel.scope.name": "gcp.vertex.agent", "gen_ai.operation.name": "invoke_agent"},
         )
         llm1 = _adk_llm_otlp_span("llm1", "model-a", 100, 20, 2_000_000_000, parent="invoke1")
