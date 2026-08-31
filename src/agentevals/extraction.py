@@ -483,13 +483,9 @@ def find_adk_llm_spans_in(root: Span) -> list[Span]:
             generate_content_spans.append(span)
 
     _walk_descendants(root, collect)
-    # Return both kinds, not just whichever is non-empty: a provider
-    # `generate_content` span carries request temperature / response model that
-    # would otherwise be dropped from modelInfo when `call_llm` spans are also
-    # present.
-    combined = call_llm_spans + generate_content_spans
-    combined.sort(key=lambda s: s.start_time)
-    return combined
+    call_llm_spans.sort(key=lambda s: s.start_time)
+    generate_content_spans.sort(key=lambda s: s.start_time)
+    return call_llm_spans or generate_content_spans
 
 
 def _walk_descendants(span: Span, visit) -> None:
