@@ -523,8 +523,8 @@ class TestConvertGenaiTrace:
         """OpenAI instrumentor logs full history per LLM call.
 
         A tool-use loop produces multiple spans with the same user text:
-        - Span 1: user asks "Roll a die" →assistant responds with tool_call
-        - Span 2: user still "Roll a die" →assistant responds with final text
+        - Span 1: user asks "Roll a die" → assistant responds with tool_call
+        - Span 2: user still "Roll a die" → assistant responds with final text
         Both have the same latest user message, so they should deduplicate.
         """
         span1 = _make_genai_llm_span(
