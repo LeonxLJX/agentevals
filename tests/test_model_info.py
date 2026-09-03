@@ -214,14 +214,14 @@ class TestPerInvocationSpans:
         manager = StreamingTraceManager()
         assert manager._extract_model_info_from_llm_spans([]) == {}
 
-    def test_nested_sub_agent_spans_are_pinned(self):
-        """Pin the current behavior for nested ``invoke_agent`` spans.
+    def test_nested_sub_agent_spans_not_double_counted(self):
+        """Nested ``invoke_agent`` spans attribute LLM spans to one invocation.
 
         A coordinator ``invoke_agent`` span that nests a specialist
-        ``invoke_agent`` span is not yet pruned: ``find_adk_llm_spans_in``
-        walks the whole subtree, so the specialist's LLM spans are attributed
-        to both invocations. This is a known limitation (see PR discussion);
-        the test documents the current behavior so a future fix is observable.
+        ``invoke_agent`` span must not include the specialist's LLM spans:
+        ``find_adk_llm_spans_in`` skips nested ``invoke_agent`` subtrees so
+        each LLM span is attributed to exactly one invocation and token spend
+        is not double counted.
         """
         coordinator = Span(
             trace_id="t1",
@@ -255,8 +255,7 @@ class TestPerInvocationSpans:
         result = convert_trace(trace)
 
         # Both the coordinator and the nested specialist are treated as
-        # invocations, and the specialist's LLM spans currently appear under
-        # both (known limitation, pinned here).
+        # invocations, and each LLM span belongs to exactly one of them.
         assert len(result.invocations) == 2
-        assert [s.span_id for s in result.invocation_llm_spans[0]] == ["llm_root", "llm_sub"]
+        assert [s.span_id for s in result.invocation_llm_spans[0]] == ["llm_root"]
         assert [s.span_id for s in result.invocation_llm_spans[1]] == ["llm_sub"]
