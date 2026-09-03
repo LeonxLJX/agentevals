@@ -677,7 +677,7 @@ class TestDeduplicateInvocations:
 
 
 class TestTrimCumulativeOutput:
-    """Tests for _trim_cumulative_output 鈥?stripping historical tool calls."""
+    """Tests for _trim_cumulative_output — stripping historical tool calls."""
 
     def test_single_user_message_no_trimming(self):
         span = _make_genai_llm_span(

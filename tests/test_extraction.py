@@ -604,6 +604,19 @@ class TestAdkExtractorSpanFinding:
         ext = AdkExtractor()
         assert [s.span_id for s in ext.find_llm_spans_in(root)] == ["llm2"]
 
+    def test_find_llm_spans_in_skips_nested_invoke_agent(self):
+        # A coordinator delegates to a sub-agent: the sub-agent's invoke_agent
+        # span nests under the coordinator's, but its LLM spans belong to the
+        # sub-agent invocation and must not be double-counted on the coordinator.
+        sub_llm = _span(op="call_llm gemini", span_id="sub_llm", start_time=10)
+        nested_invoke = _span(
+            op="invoke_agent sub_agent", span_id="sub_invoke", children=[sub_llm]
+        )
+        own_llm = _span(op="call_llm gemini", span_id="own_llm", start_time=20)
+        root = _span(op="invoke_agent coordinator", children=[own_llm, nested_invoke])
+        ext = AdkExtractor()
+        assert [s.span_id for s in ext.find_llm_spans_in(root)] == ["own_llm"]
+
     def test_find_tool_spans_in(self):
         child_llm = _span(op="call_llm gemini", span_id="llm1")
         child_tool = _span(op="execute_tool search", span_id="tool1")
