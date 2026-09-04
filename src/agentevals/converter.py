@@ -98,6 +98,32 @@ def _convert_adk_trace(trace: Trace) -> ConversionResult:
             msg = f"Trace {trace.trace_id}: failed to convert invoke_agent span {invoke_span.span_id}: {exc}"
             logger.warning(msg)
             result.warnings.append(msg)
+            # Orchestrators like SequentialAgent don't call an LLM themselves,
+            # so after pruning the invocation has no LLM descendants and the
+            # converter raises. Dropping the whole invocation would silently
+            # shrink a 3-step trace to 2 rows and bias every per-invocation
+            # count downstream, so we keep it: the empty ``invocation_llm_spans``
+            # slot ensures token totals stay honest, and we fall back
+            # ``user_content`` / ``final_response`` to the previous invocation
+            # so callers still get a renderable row. Without a previous
+            # invocation (the rare first-span-failed case) we emit an empty
+            # Content so the row is still well-formed.
+            prev = result.invocations[-1] if result.invocations else None
+            fallback = prev.user_content if prev is not None else genai_types.Content(
+                role="user", parts=[]
+            )
+            fallback_response = prev.final_response if prev is not None else genai_types.Content(
+                role="model", parts=[]
+            )
+            result.invocations.append(
+                Invocation(
+                    invocation_id=invoke_span.get_tag(ADK_INVOCATION_ID, invoke_span.span_id),
+                    user_content=fallback,
+                    final_response=fallback_response,
+                    creation_timestamp=invoke_span.start_time / 1_000_000.0,
+                )
+            )
+            result.invocation_llm_spans.append([])
 
     return result
 
